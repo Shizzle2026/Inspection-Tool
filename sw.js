@@ -1,8 +1,27 @@
-// Minimal service worker. It doesn't need to do any real caching work -
-// its mere presence is what tells Chrome this can be installed as a real
-// standalone app instead of a plain bookmark shortcut.
-self.addEventListener('install', (e) => { self.skipWaiting(); });
-self.addEventListener('activate', (e) => { self.clients.claim(); });
+// Caches the app shell so it keeps working even if something (like an
+// accidental pull-to-refresh) forces a reload while completely offline.
+const CACHE_NAME = 'field-tool-2026-09-11-2201';
+const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
+
+self.addEventListener('install', (e) => {
+  self.skipWaiting();
+  e.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)));
+});
+
+self.addEventListener('activate', (e) => {
+  self.clients.claim();
+  e.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+    )
+  );
+});
+
 self.addEventListener('fetch', (e) => {
-  // Pass every request straight through to the network as normal.
+  e.respondWith(
+    caches.match(e.request).then((cached) => {
+      if (cached) return cached;
+      return fetch(e.request).catch(() => caches.match('./index.html'));
+    })
+  );
 });
