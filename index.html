@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
 <title>Field Inspection Tool</title>
-<link rel="manifest" href='data:application/manifest+json,{"name":"Field Inspection Tool","short_name":"Field Tool","start_url":".","display":"standalone","background_color":"#ffffff","theme_color":"#0b5fb0"}'>
+<link rel="manifest" href="manifest.json">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0b5fb0">
@@ -1028,7 +1028,15 @@ async function renderExport(){
 }
 
 /* ---------- Boot ---------- */
-(async function boot(){ document.getElementById('app').style.zoom = uiScale; await loadAll(); renderHome(); })();
+/* ---------- Boot ---------- */
+(async function boot(){
+  document.getElementById('app').style.zoom = uiScale;
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  }
+  await loadAll();
+  renderHome();
+})();
 </script>
 </body>
 </html>
