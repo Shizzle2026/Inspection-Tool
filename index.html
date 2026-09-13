@@ -108,29 +108,32 @@ let currentPropId = null;
 let currentSection = null;
 let uiScale = parseFloat(localStorage.getItem('fieldTool.uiScale')) || 1;
 
-const EXTERIOR_TILES_A = [
+const EXTERIOR_TILES_FRONT = [
   ['front','Front'],
   ['frontSide1','Front and side 1'],
   ['frontSide2','Front and side 2'],
-  ['driveway','Driveway'],
+];
+const EXTERIOR_TILES_STREET = [
   ['streetScene1','Street scene'],
   ['streetScene2','Street scene'],
 ];
-const EXTERIOR_TILES_B = [
+const EXTERIOR_TILES_REAR = [
   ['rear','Rear'],
   ['rearSide1','Rear and side 1'],
   ['rearSide2','Rear and side 2'],
 ];
-const EXTERIOR_TILES = [...EXTERIOR_TILES_A, ...EXTERIOR_TILES_B];
+const EXTERIOR_TILES = [...EXTERIOR_TILES_FRONT, ...EXTERIOR_TILES_STREET, ...EXTERIOR_TILES_REAR];
+
+const FOUNDATION_MATERIALS = ['Concrete block','Poured concrete','Stone','Post and beam'];
+const FOUNDATION_TYPES = ['Slab','Partial basement','Full basement','Crawlspace'];
 
 // NOTE: these type lists are standard industry terms, not copied from a verified
 // Fannie Mae enumeration list (I couldn't confirm the literal UAD 3.6 wording).
 // Easy to relabel here once you compare against AIVRE's actual dropdowns.
 const EXTERIOR_COMPONENTS = [
-  ['foundation','Foundation', ['Concrete slab','Crawl space','Full basement','Partial basement','Pier and beam','Concrete block','Poured concrete','Stone','Other']],
   ['sidingTrim','Siding and trim', ['Vinyl','Wood','Brick','Brick veneer','Stucco','Fiber cement','Aluminum','Stone veneer','Log','Composite','Other']],
-  ['windows','Windows', ['Single hung','Double hung','Casement','Sliding','Awning','Fixed','Bay / bow','Other']],
-  ['roof','Roof', ['Asphalt shingle','Architectural shingle','Metal','Tile','Slate','Wood shake','Flat / membrane','Other']],
+  ['windows','Windows', ['Single hung','Double hung','Casement','Sliding','Awning','Fixed','Bay / bow','Wood-framed','Vinyl-framed','Single-pane','Multi-pane','Other']],
+  ['roof','Roof', ['Composition shingle','Architectural shingle','Preformed metal','Tile','Slate','Wood shake','Flat / membrane','Other']],
 ];
 
 const CEILING_HEIGHT_OPTIONS = ['6 ft or less','7 ft','8 ft','9 ft','10 ft','11 ft','12 ft or more'];
@@ -141,12 +144,16 @@ const UPDATED_TIMEFRAMES = ['Less than 1 year','1 to 10 years'];
 const FENCE_MATERIALS = ['Wood','Metal','Vinyl','Chain link'];
 const FURNACE_FUELS = ['Gas','Electric','Oil','Propane'];
 const WATER_HEATER_FUELS = ['Gas','Electric'];
+const DRIVEWAY_MATERIALS = ['Concrete','Asphalt','Gravel','Dirt'];
+const DRIVEWAY_CAPACITIES = ['1','2','3','4+'];
+const GARAGE_CAPACITIES = ['1','2','3'];
+const GARAGE_ATTACHMENTS = ['Attached','Detached'];
 
 // Porch/Patio/Deck: [key, label, type options, material options]
 const EXTERIOR_FEATURES = [
-  ['porch','Porch', ['Open','Covered','Enclosed','Screened'], ['Wood','Concrete','Composite','Brick','Stone','Vinyl','Other']],
+  ['porch','Porch', ['Open','Covered','Enclosed','Screened'], ['Wood','Concrete','Composite','Brick','Stone','Other']],
   ['patio','Patio', ['Open','Covered'], ['Concrete','Pavers','Stone','Brick','Other']],
-  ['deck','Deck', ['Open','Covered'], ['Wood','Composite','Vinyl','Other']],
+  ['deck','Deck', ['Open','Covered'], ['Wood','Composite','Other']],
 ];
 
 const ROOM_NAME_OPTIONS = [
@@ -171,9 +178,11 @@ function newProperty(address){
     occupancy: null,         // 'Occupied' | 'Vacant'
     fileNumber: '',
     exterior: { photos: {}, components, features, outbuildingPresent: null, outbuildingPhotos: [],
-                entranceHeight: null, drivewayMaterial: null, drivewayCapacity: null, notes: '',
-                fence: { front: {present:null, materials:[], photos:[]}, rear: {present:null, materials:[], photos:[]} } },
-    garage: { capacity: null, attachment: null, exteriorPhotos: [], interiorPhotos: [], notes: '' },
+                entranceHeight: null, notes: '',
+                fence: { front: {present:null, materials:[], photos:[]}, rear: {present:null, materials:[], photos:[]} },
+                driveway: { present:null, materials:[], capacity:null, photos:[] },
+                garage: { present:null, capacity:null, attachment:null, exteriorPhotos:[], interiorPhotos:[] },
+                foundation: { materials:[], types:[], condition:null } },
     levels: [],
     generalNotes: ''
   };
@@ -218,10 +227,6 @@ function countExteriorDone(p){
   EXTERIOR_TILES.forEach(([k])=>{ if((p.exterior.photos[k]||[]).length>0) done++; });
   if(p.exterior.outbuildingPresent===false || (p.exterior.outbuildingPresent && p.exterior.outbuildingPhotos.length>0)) done++;
   return done+'/'+total;
-}
-function countGarageLabel(p){
-  const n = p.garage.exteriorPhotos.length + p.garage.interiorPhotos.length;
-  return n + ' photo' + (n===1?'':'s');
 }
 function countRoomsLabel(p){
   const roomLevels = p.levels.filter(l=>l.kind==='rooms');
@@ -585,7 +590,6 @@ function renderPropertyHome(){
       <div class="section-list">
         <button class="navrow" data-sec="exterior"><span>Exterior</span><span class="count">${countExteriorDone(p)}</span></button>
         <button class="navrow" data-sec="interior"><span>Interior</span><span class="count">${countRoomsLabel(p)}</span></button>
-        <button class="navrow" data-sec="garage"><span>Garage</span><span class="count">${countGarageLabel(p)}</span></button>
         <button class="navrow" data-sec="notes"><span>General notes</span><span class="count">${p.generalNotes ? 'added' : 'empty'}</span></button>
       </div>
     </div>
@@ -613,7 +617,6 @@ function renderPropertyHome(){
 
 function renderSection(){
   if(currentSection==='exterior') return renderExterior();
-  if(currentSection==='garage') return renderGarage();
   if(currentSection==='interior') return renderRooms();
   if(currentSection==='notes') return renderNotes();
 }
@@ -664,6 +667,24 @@ function componentCardHTML(key,label,typeOptions,comp){
     </div>`;
 }
 
+function foundationCardHTML(f){
+  const matChips = FOUNDATION_MATERIALS.map(v=>`<button class="chip ${f.materials.includes(v)?'selected':''}" data-foundmat="${v}">${v}</button>`).join('');
+  const typeChips = FOUNDATION_TYPES.map(v=>`<button class="chip ${f.types.includes(v)?'selected':''}" data-foundtype="${v}">${v}</button>`).join('');
+  const condChips = CONDITION_OPTIONS.map(v=>`<button class="chip ${f.condition===v?'selected':''}" data-foundcond="${v}">${v}</button>`).join('');
+  return `
+    <div class="card">
+      <p class="label">Foundation</p>
+      <p class="fieldhead">Material</p>
+      <p class="sub">Tap all that apply</p>
+      <div class="chiprow">${matChips}</div>
+      <p class="fieldhead">Type</p>
+      <p class="sub">Tap all that apply</p>
+      <div class="chiprow">${typeChips}</div>
+      <p class="fieldhead">Condition</p>
+      <div class="chiprow">${condChips}</div>
+    </div>`;
+}
+
 function fenceSideHTML(side, label, data){
   const matChips = FENCE_MATERIALS.map(v=>`<button class="chip ${data.materials.includes(v)?'selected':''}" data-fencemat="${side}" data-val="${v}">${v}</button>`).join('');
   return `
@@ -703,19 +724,57 @@ function featureCardHTML(key, label, data, typeOptions, materialOptions){
     </div>`;
 }
 
+function drivewayCardHTML(d){
+  const matChips = DRIVEWAY_MATERIALS.map(v=>`<button class="chip ${d.materials.includes(v)?'selected':''}" data-drivemat="${v}">${v}</button>`).join('');
+  const capChips = DRIVEWAY_CAPACITIES.map(v=>`<button class="chip ${d.capacity===v?'selected':''}" data-drivecap="${v}">${v} car</button>`).join('');
+  return `
+    <div class="card">
+      <p class="label">Driveway present?</p>
+      <div class="chiprow">
+        <button class="chip ${d.present===true?'selected':''}" data-drivepresent="yes">Yes</button>
+        <button class="chip ${d.present===false?'selected':''}" data-drivepresent="no">No</button>
+      </div>
+      ${d.present ? `
+        <p class="fieldhead">Material</p>
+        <p class="sub">Tap all that apply</p>
+        <div class="chiprow">${matChips}</div>
+        <p class="fieldhead">Capacity (cars)</p>
+        <div class="chiprow">${capChips}</div>
+        ${photoTileHTML('driveway_photo','Driveway photo', d.photos)}
+      ` : ''}
+    </div>`;
+}
+
+function garageCardHTML(g){
+  const capChips = GARAGE_CAPACITIES.map(v=>`<button class="chip ${g.capacity===v?'selected':''}" data-garagecap="${v}">${v} car</button>`).join('');
+  const attChips = GARAGE_ATTACHMENTS.map(v=>`<button class="chip ${g.attachment===v?'selected':''}" data-garageatt="${v}">${v}</button>`).join('');
+  return `
+    <div class="card">
+      <p class="label">Garage present?</p>
+      <div class="chiprow">
+        <button class="chip ${g.present===true?'selected':''}" data-garagepresent="yes">Yes</button>
+        <button class="chip ${g.present===false?'selected':''}" data-garagepresent="no">No</button>
+      </div>
+      ${g.present ? `
+        ${photoTileHTML('garage_ext','Garage \u2014 exterior photo', g.exteriorPhotos)}
+        ${photoTileHTML('garage_int','Garage \u2014 interior photo', g.interiorPhotos)}
+        <p class="fieldhead">Capacity</p>
+        <div class="chiprow">${capChips}</div>
+        <p class="fieldhead">Attached or detached</p>
+        <div class="chiprow">${attChips}</div>
+      ` : ''}
+    </div>`;
+}
+
 function renderExterior(){
   const p = findProp(currentPropId);
   const app = document.getElementById('app');
-  const tilesA = EXTERIOR_TILES_A.map(([k,label])=>photoTileHTML(k,label,p.exterior.photos[k])).join('');
-  const tilesB = EXTERIOR_TILES_B.map(([k,label])=>photoTileHTML(k,label,p.exterior.photos[k])).join('');
-  const featuresHTML = EXTERIOR_FEATURES.map(([key,label,typeOpts,matOpts])=>featureCardHTML(key,label,p.exterior.features[key],typeOpts,matOpts)).join('');
+  const tilesFront = EXTERIOR_TILES_FRONT.map(([k,label])=>photoTileHTML(k,label,p.exterior.photos[k])).join('');
+  const tilesStreet = EXTERIOR_TILES_STREET.map(([k,label])=>photoTileHTML(k,label,p.exterior.photos[k])).join('');
+  const tilesRear = EXTERIOR_TILES_REAR.map(([k,label])=>photoTileHTML(k,label,p.exterior.photos[k])).join('');
   const componentsHTML = EXTERIOR_COMPONENTS.map(([key,label,opts])=>componentCardHTML(key,label,opts,p.exterior.components[key])).join('');
   const heightOptions = ['0-1 ft','1-2 ft','2-3 ft','3-4 ft','4+ ft'];
   const heightChips = heightOptions.map(v=>`<button class="chip ${p.exterior.entranceHeight===v?'selected':''}" data-height="${v}">${v}</button>`).join('');
-  const materialOptions = ['Concrete','Asphalt','Pavers','Gravel','Dirt','Other'];
-  const materialChips = materialOptions.map(v=>`<button class="chip ${p.exterior.drivewayMaterial===v?'selected':''}" data-material="${v}">${v}</button>`).join('');
-  const capacityOptions = ['1','2','3','4+'];
-  const drivewayCapChips = capacityOptions.map(v=>`<button class="chip ${p.exterior.drivewayCapacity===v?'selected':''}" data-drivewaycap="${v}">${v} car</button>`).join('');
 
   app.innerHTML = `
     <div class="topbar">
@@ -724,11 +783,22 @@ function renderExterior(){
       <h1>Exterior</h1>
     </div>
     <div class="content">
-      ${tilesA}
+      ${tilesFront}
+      ${drivewayCardHTML(p.exterior.driveway)}
+      ${garageCardHTML(p.exterior.garage)}
+      ${tilesStreet}
       ${fenceSideHTML('front','Front', p.exterior.fence.front)}
       ${fenceSideHTML('rear','Rear', p.exterior.fence.rear)}
-      ${tilesB}
-      ${featuresHTML}
+      ${tilesRear}
+      ${featureCardHTML('porch','Porch', p.exterior.features.porch, ...EXTERIOR_FEATURES.find(f=>f[0]==='porch').slice(2))}
+      <div class="card">
+        <p class="label">Entrance height above grade</p>
+        <p class="sub">UAD 3.6 field &mdash; approximate range is fine</p>
+        <div class="chiprow">${heightChips}</div>
+      </div>
+      ${featureCardHTML('patio','Patio', p.exterior.features.patio, ...EXTERIOR_FEATURES.find(f=>f[0]==='patio').slice(2))}
+      ${featureCardHTML('deck','Deck', p.exterior.features.deck, ...EXTERIOR_FEATURES.find(f=>f[0]==='deck').slice(2))}
+      ${foundationCardHTML(p.exterior.foundation)}
       ${componentsHTML}
       <div class="card">
         <div class="row"><p class="label">Outbuilding present?</p></div>
@@ -737,18 +807,6 @@ function renderExterior(){
           <button class="chip ${p.exterior.outbuildingPresent===false?'selected':''}" data-ob="no">No</button>
         </div>
         ${p.exterior.outbuildingPresent ? photoTileHTML('outbuilding','Outbuilding photos', p.exterior.outbuildingPhotos) : ''}
-      </div>
-      <div class="card">
-        <p class="label">Entrance height above grade</p>
-        <p class="sub">UAD 3.6 field &mdash; approximate range is fine</p>
-        <div class="chiprow">${heightChips}</div>
-      </div>
-      <div class="card">
-        <p class="label">Driveway</p>
-        <p class="fieldhead">Material</p>
-        <div class="chiprow">${materialChips}</div>
-        <p class="fieldhead">Capacity (cars)</p>
-        <div class="chiprow">${drivewayCapChips}</div>
       </div>
       <div class="card">
         <p class="label">Site / exterior notes</p>
@@ -763,7 +821,11 @@ function renderExterior(){
   wirePhotoTile(app, 'outbuilding', ()=>p.exterior.outbuildingPhotos, renderExterior);
   wirePhotoTile(app, 'fence_front', ()=>p.exterior.fence.front.photos, renderExterior);
   wirePhotoTile(app, 'fence_rear', ()=>p.exterior.fence.rear.photos, renderExterior);
+  wirePhotoTile(app, 'driveway_photo', ()=>p.exterior.driveway.photos, renderExterior);
+  wirePhotoTile(app, 'garage_ext', ()=>p.exterior.garage.exteriorPhotos, renderExterior);
+  wirePhotoTile(app, 'garage_int', ()=>p.exterior.garage.interiorPhotos, renderExterior);
   EXTERIOR_FEATURES.forEach(([key])=> wirePhotoTile(app, key+'_photo', ()=>p.exterior.features[key].photos, renderExterior));
+
   app.querySelectorAll('[data-fencepresent]').forEach(btn=>{
     const side = btn.dataset.fencepresent, v = (btn.dataset.val==='yes');
     bindSingleSelectTap(btn, ()=>p.exterior.fence[side].present, v, (val)=>{ p.exterior.fence[side].present=val; saveCurrent(); renderExterior(); });
@@ -792,6 +854,50 @@ function renderExterior(){
       ()=>{ p.exterior.features[key].materials.splice(p.exterior.features[key].materials.indexOf(v),1); saveCurrent(); renderExterior(); }
     );
   });
+  app.querySelectorAll('[data-drivepresent]').forEach(btn=>{
+    const v = (btn.dataset.drivepresent==='yes');
+    bindSingleSelectTap(btn, ()=>p.exterior.driveway.present, v, (val)=>{ p.exterior.driveway.present=val; saveCurrent(); renderExterior(); });
+  });
+  app.querySelectorAll('[data-drivemat]').forEach(btn=>{
+    const v = btn.dataset.drivemat;
+    bindAddRemoveTap(btn,
+      ()=>p.exterior.driveway.materials.includes(v),
+      ()=>{ p.exterior.driveway.materials.push(v); saveCurrent(); renderExterior(); },
+      ()=>{ p.exterior.driveway.materials.splice(p.exterior.driveway.materials.indexOf(v),1); saveCurrent(); renderExterior(); }
+    );
+  });
+  app.querySelectorAll('[data-drivecap]').forEach(btn=>{
+    bindSingleSelectTap(btn, ()=>p.exterior.driveway.capacity, btn.dataset.drivecap, (v)=>{ p.exterior.driveway.capacity=v; saveCurrent(); renderExterior(); });
+  });
+  app.querySelectorAll('[data-garagepresent]').forEach(btn=>{
+    const v = (btn.dataset.garagepresent==='yes');
+    bindSingleSelectTap(btn, ()=>p.exterior.garage.present, v, (val)=>{ p.exterior.garage.present=val; saveCurrent(); renderExterior(); });
+  });
+  app.querySelectorAll('[data-garagecap]').forEach(btn=>{
+    bindSingleSelectTap(btn, ()=>p.exterior.garage.capacity, btn.dataset.garagecap, (v)=>{ p.exterior.garage.capacity=v; saveCurrent(); renderExterior(); });
+  });
+  app.querySelectorAll('[data-garageatt]').forEach(btn=>{
+    bindSingleSelectTap(btn, ()=>p.exterior.garage.attachment, btn.dataset.garageatt, (v)=>{ p.exterior.garage.attachment=v; saveCurrent(); renderExterior(); });
+  });
+  app.querySelectorAll('[data-foundmat]').forEach(btn=>{
+    const v = btn.dataset.foundmat;
+    bindAddRemoveTap(btn,
+      ()=>p.exterior.foundation.materials.includes(v),
+      ()=>{ p.exterior.foundation.materials.push(v); saveCurrent(); renderExterior(); },
+      ()=>{ p.exterior.foundation.materials.splice(p.exterior.foundation.materials.indexOf(v),1); saveCurrent(); renderExterior(); }
+    );
+  });
+  app.querySelectorAll('[data-foundtype]').forEach(btn=>{
+    const v = btn.dataset.foundtype;
+    bindAddRemoveTap(btn,
+      ()=>p.exterior.foundation.types.includes(v),
+      ()=>{ p.exterior.foundation.types.push(v); saveCurrent(); renderExterior(); },
+      ()=>{ p.exterior.foundation.types.splice(p.exterior.foundation.types.indexOf(v),1); saveCurrent(); renderExterior(); }
+    );
+  });
+  app.querySelectorAll('[data-foundcond]').forEach(btn=>{
+    bindSingleSelectTap(btn, ()=>p.exterior.foundation.condition, btn.dataset.foundcond, (v)=>{ p.exterior.foundation.condition=v; saveCurrent(); renderExterior(); });
+  });
   app.querySelectorAll('[data-comptype]').forEach(btn=>{
     const comp = p.exterior.components[btn.dataset.comptype];
     const v = btn.dataset.val;
@@ -812,53 +918,7 @@ function renderExterior(){
   app.querySelectorAll('[data-height]').forEach(btn=>{
     bindSingleSelectTap(btn, ()=>p.exterior.entranceHeight, btn.dataset.height, (v)=>{ p.exterior.entranceHeight=v; saveCurrent(); renderExterior(); });
   });
-  app.querySelectorAll('[data-material]').forEach(btn=>{
-    bindSingleSelectTap(btn, ()=>p.exterior.drivewayMaterial, btn.dataset.material, (v)=>{ p.exterior.drivewayMaterial=v; saveCurrent(); renderExterior(); });
-  });
-  app.querySelectorAll('[data-drivewaycap]').forEach(btn=>{
-    bindSingleSelectTap(btn, ()=>p.exterior.drivewayCapacity, btn.dataset.drivewaycap, (v)=>{ p.exterior.drivewayCapacity=v; saveCurrent(); renderExterior(); });
-  });
   document.getElementById('extNotes').onblur = (e)=>{ p.exterior.notes = e.target.value; saveCurrent(); };
-}
-
-/* ---------- Render: Garage ---------- */
-function renderGarage(){
-  const p = findProp(currentPropId);
-  const app = document.getElementById('app');
-  const capacityChips = ['1','2','3'].map(v=>`<button class="chip ${p.garage.capacity===v?'selected':''}" data-capacity="${v}">${v} car</button>`).join('');
-  const attachChips = ['Attached','Detached'].map(v=>`<button class="chip ${p.garage.attachment===v?'selected':''}" data-attach="${v}">${v}</button>`).join('');
-  app.innerHTML = `
-    <div class="topbar">
-      <button class="backbtn" id="backProp">&larr; Back to property</button>
-      <p class="addr-line">${p.address}</p>
-      <h1>Garage</h1>
-    </div>
-    <div class="content">
-      <div class="card">
-        <p class="label">Car capacity</p>
-        <div class="chiprow">${capacityChips}</div>
-        <p class="fieldhead">Attached or detached</p>
-        <div class="chiprow">${attachChips}</div>
-      </div>
-      ${photoTileHTML('garageExt','Garage \u2014 exterior photo', p.garage.exteriorPhotos)}
-      ${photoTileHTML('garageInt','Garage \u2014 interior photo', p.garage.interiorPhotos)}
-      <div class="card">
-        <p class="label">Garage notes</p>
-        <textarea id="garageNotes" placeholder="Anything else worth flagging...">${p.garage.notes||''}</textarea>
-      </div>
-    </div>
-    <div class="footer-actions"><button class="btn" id="backHomeBtn">Done</button></div>
-  `;
-  document.getElementById('backProp').onclick = ()=>renderPropertyHome();
-  document.getElementById('backHomeBtn').onclick = ()=>{ p.garage.notes = document.getElementById('garageNotes').value; saveCurrent(); renderPropertyHome(); };
-  app.querySelectorAll('[data-capacity]').forEach(btn=>{
-    bindSingleSelectTap(btn, ()=>p.garage.capacity, btn.dataset.capacity, (v)=>{ p.garage.capacity=v; saveCurrent(); renderGarage(); });
-  });
-  app.querySelectorAll('[data-attach]').forEach(btn=>{
-    bindSingleSelectTap(btn, ()=>p.garage.attachment, btn.dataset.attach, (v)=>{ p.garage.attachment=v; saveCurrent(); renderGarage(); });
-  });
-  wirePhotoTile(app, 'garageExt', ()=>p.garage.exteriorPhotos, renderGarage);
-  wirePhotoTile(app, 'garageInt', ()=>p.garage.interiorPhotos, renderGarage);
 }
 
 /* ---------- Render: Interior (levels: rooms + mechanical) ---------- */
@@ -1182,14 +1242,16 @@ function buildNotesText(p){
   put('Occupancy', p.occupancy);
   lines.push('');
   lines.push('EXTERIOR');
+  const found = p.exterior.foundation;
+  if(found.materials.length || found.types.length || found.condition){
+    put('Foundation', [found.materials.join(', '), found.types.join(', '), found.condition].filter(Boolean).join(' \u2014 '));
+  }
   EXTERIOR_COMPONENTS.forEach(([key,label])=>{
     const c = p.exterior.components[key];
     const parts = [...c.types, c.condition].filter(Boolean);
     if(parts.length) put(label, parts.join(', '));
   });
   put('Entrance height above grade', p.exterior.entranceHeight);
-  put('Driveway material', p.exterior.drivewayMaterial);
-  put('Driveway capacity', p.exterior.drivewayCapacity ? p.exterior.drivewayCapacity + ' car' : null);
   put('Outbuilding present', f(p.exterior.outbuildingPresent));
   ['front','rear'].forEach(side=>{
     const fen = p.exterior.fence[side];
@@ -1207,15 +1269,19 @@ function buildNotesText(p){
       put(label, 'None');
     }
   });
+  const dw = p.exterior.driveway;
+  if(dw.present){
+    put('Driveway', [dw.materials.join(', '), dw.capacity?dw.capacity+' car':null].filter(Boolean).join(' \u2014 ') || '(details not set)');
+  } else if(dw.present===false){
+    put('Driveway', 'None');
+  }
+  const gar = p.exterior.garage;
+  if(gar.present){
+    put('Garage', [gar.capacity?gar.capacity+' car':null, gar.attachment].filter(Boolean).join(' \u2014 ') || '(details not set)');
+  } else if(gar.present===false){
+    put('Garage', 'None');
+  }
   put('Site/exterior notes', p.exterior.notes);
-  lines.push('');
-
-  lines.push('GARAGE');
-  put('Car capacity', p.garage.capacity ? p.garage.capacity + ' car' : null);
-  put('Attached or detached', p.garage.attachment);
-  put('Exterior photos', p.garage.exteriorPhotos.length ? p.garage.exteriorPhotos.length+' photo(s)' : null);
-  put('Interior photos', p.garage.interiorPhotos.length ? p.garage.interiorPhotos.length+' photo(s)' : null);
-  put('Garage notes', p.garage.notes);
   lines.push('');
 
   p.levels.forEach(lvl=>{
@@ -1266,8 +1332,11 @@ function collectPhotoFiles(p){
   addAll(p.exterior.fence.front.photos, 'Front fence');
   addAll(p.exterior.fence.rear.photos, 'Rear fence');
   EXTERIOR_FEATURES.forEach(([key,label])=>{ if(p.exterior.features[key].present) addAll(p.exterior.features[key].photos, label); });
-  addAll(p.garage.exteriorPhotos, 'Garage - exterior');
-  addAll(p.garage.interiorPhotos, 'Garage - interior');
+  if(p.exterior.driveway.present) addAll(p.exterior.driveway.photos, 'Driveway');
+  if(p.exterior.garage.present){
+    addAll(p.exterior.garage.exteriorPhotos, 'Garage - exterior');
+    addAll(p.exterior.garage.interiorPhotos, 'Garage - interior');
+  }
   p.levels.forEach(lvl=>{
     if(lvl.kind==='mechanical'){
       lvl.rooms.forEach(item=> addAll(item.photos, lvl.label + ' - ' + (item.label||'Item')));
