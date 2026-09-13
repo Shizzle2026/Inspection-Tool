@@ -770,16 +770,18 @@ function garageCardHTML(g){
             <button class="chip ${g.present===false?'selected':''}" data-garagepresent="no">No</button>
           </div>
         </div>
-        ${g.present ? `<div style="flex:1;">
-          ${photoTileHTML('garage_ext','Garage \u2014 exterior photo', g.exteriorPhotos)}
-          ${photoTileHTML('garage_int','Garage \u2014 interior photo', g.interiorPhotos)}
-        </div>` : ''}
+        ${g.present ? `<div style="flex:1;">${photoTileHTML('garage_ext','Garage \u2014 exterior photo', g.exteriorPhotos)}</div>` : ''}
       </div>
       ${g.present ? `
+        <div class="row" style="align-items:flex-start;margin-top:14px;">
+          <div style="flex:1;">
+            <p class="fieldhead" style="margin-top:0;">Attached or detached</p>
+            <div class="chiprow">${attChips}</div>
+          </div>
+          <div style="flex:1;">${photoTileHTML('garage_int','Garage \u2014 interior photo', g.interiorPhotos)}</div>
+        </div>
         <p class="fieldhead">Capacity</p>
         <div class="chiprow">${capChips}</div>
-        <p class="fieldhead">Attached or detached</p>
-        <div class="chiprow">${attChips}</div>
       ` : ''}
     </div>`;
 }
