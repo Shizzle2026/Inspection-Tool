@@ -120,9 +120,6 @@ const EXTERIOR_TILES_B = [
   ['rear','Rear'],
   ['rearSide1','Rear and side 1'],
   ['rearSide2','Rear and side 2'],
-  ['porch','Porch'],
-  ['patio','Patio'],
-  ['deck','Deck'],
 ];
 const EXTERIOR_TILES = [...EXTERIOR_TILES_A, ...EXTERIOR_TILES_B];
 
@@ -145,6 +142,13 @@ const FENCE_MATERIALS = ['Wood','Metal','Vinyl','Chain link'];
 const FURNACE_FUELS = ['Gas','Electric','Oil','Propane'];
 const WATER_HEATER_FUELS = ['Gas','Electric'];
 
+// Porch/Patio/Deck: [key, label, type options, material options]
+const EXTERIOR_FEATURES = [
+  ['porch','Porch', ['Open','Covered','Enclosed','Screened'], ['Wood','Concrete','Composite','Brick','Stone','Vinyl','Other']],
+  ['patio','Patio', ['Open','Covered'], ['Concrete','Pavers','Stone','Brick','Other']],
+  ['deck','Deck', ['Open','Covered'], ['Wood','Composite','Vinyl','Other']],
+];
+
 const ROOM_NAME_OPTIONS = [
   'Living room','Dining room','Kitchen','Family room','Primary bedroom','Bedroom',
   'Primary bathroom','Bathroom','Half bathroom','Office / den','Laundry room',
@@ -155,6 +159,8 @@ function isKitchenOrBath(name){ return /kitchen|bathroom/i.test(name||''); }
 function newProperty(address){
   const components = {};
   EXTERIOR_COMPONENTS.forEach(([key])=>{ components[key] = {types:[], condition:null}; });
+  const features = {};
+  EXTERIOR_FEATURES.forEach(([key])=>{ features[key] = {present:null, type:null, materials:[], photos:[]}; });
   return {
     id: 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
     address: address || '',
@@ -164,7 +170,7 @@ function newProperty(address){
     effectiveDate: null,     // date string
     occupancy: null,         // 'Occupied' | 'Vacant'
     fileNumber: '',
-    exterior: { photos: {}, components, outbuildingPresent: null, outbuildingPhotos: [],
+    exterior: { photos: {}, components, features, outbuildingPresent: null, outbuildingPhotos: [],
                 entranceHeight: null, drivewayMaterial: null, drivewayCapacity: null, notes: '',
                 fence: { front: {present:null, materials:[], photos:[]}, rear: {present:null, materials:[], photos:[]} } },
     garage: { capacity: null, attachment: null, exteriorPhotos: [], interiorPhotos: [], notes: '' },
@@ -578,8 +584,8 @@ function renderPropertyHome(){
     <div class="content">
       <div class="section-list">
         <button class="navrow" data-sec="exterior"><span>Exterior</span><span class="count">${countExteriorDone(p)}</span></button>
-        <button class="navrow" data-sec="garage"><span>Garage</span><span class="count">${countGarageLabel(p)}</span></button>
         <button class="navrow" data-sec="interior"><span>Interior</span><span class="count">${countRoomsLabel(p)}</span></button>
+        <button class="navrow" data-sec="garage"><span>Garage</span><span class="count">${countGarageLabel(p)}</span></button>
         <button class="navrow" data-sec="notes"><span>General notes</span><span class="count">${p.generalNotes ? 'added' : 'empty'}</span></button>
       </div>
     </div>
@@ -676,11 +682,33 @@ function fenceSideHTML(side, label, data){
     </div>`;
 }
 
+function featureCardHTML(key, label, data, typeOptions, materialOptions){
+  const typeChips = typeOptions.map(v=>`<button class="chip ${data.type===v?'selected':''}" data-feattype="${key}" data-val="${v}">${v}</button>`).join('');
+  const matChips = materialOptions.map(v=>`<button class="chip ${data.materials.includes(v)?'selected':''}" data-featmat="${key}" data-val="${v}">${v}</button>`).join('');
+  return `
+    <div class="card">
+      <p class="label">${label} present?</p>
+      <div class="chiprow">
+        <button class="chip ${data.present===true?'selected':''}" data-featpresent="${key}" data-val="yes">Yes</button>
+        <button class="chip ${data.present===false?'selected':''}" data-featpresent="${key}" data-val="no">No</button>
+      </div>
+      ${data.present ? `
+        <p class="fieldhead">Type</p>
+        <div class="chiprow">${typeChips}</div>
+        <p class="fieldhead">Material</p>
+        <p class="sub">Tap all that apply</p>
+        <div class="chiprow">${matChips}</div>
+        ${photoTileHTML(key+'_photo', label+' photo', data.photos)}
+      ` : ''}
+    </div>`;
+}
+
 function renderExterior(){
   const p = findProp(currentPropId);
   const app = document.getElementById('app');
   const tilesA = EXTERIOR_TILES_A.map(([k,label])=>photoTileHTML(k,label,p.exterior.photos[k])).join('');
   const tilesB = EXTERIOR_TILES_B.map(([k,label])=>photoTileHTML(k,label,p.exterior.photos[k])).join('');
+  const featuresHTML = EXTERIOR_FEATURES.map(([key,label,typeOpts,matOpts])=>featureCardHTML(key,label,p.exterior.features[key],typeOpts,matOpts)).join('');
   const componentsHTML = EXTERIOR_COMPONENTS.map(([key,label,opts])=>componentCardHTML(key,label,opts,p.exterior.components[key])).join('');
   const heightOptions = ['0-1 ft','1-2 ft','2-3 ft','3-4 ft','4+ ft'];
   const heightChips = heightOptions.map(v=>`<button class="chip ${p.exterior.entranceHeight===v?'selected':''}" data-height="${v}">${v}</button>`).join('');
@@ -698,7 +726,9 @@ function renderExterior(){
     <div class="content">
       ${tilesA}
       ${fenceSideHTML('front','Front', p.exterior.fence.front)}
+      ${fenceSideHTML('rear','Rear', p.exterior.fence.rear)}
       ${tilesB}
+      ${featuresHTML}
       ${componentsHTML}
       <div class="card">
         <div class="row"><p class="label">Outbuilding present?</p></div>
@@ -733,6 +763,7 @@ function renderExterior(){
   wirePhotoTile(app, 'outbuilding', ()=>p.exterior.outbuildingPhotos, renderExterior);
   wirePhotoTile(app, 'fence_front', ()=>p.exterior.fence.front.photos, renderExterior);
   wirePhotoTile(app, 'fence_rear', ()=>p.exterior.fence.rear.photos, renderExterior);
+  EXTERIOR_FEATURES.forEach(([key])=> wirePhotoTile(app, key+'_photo', ()=>p.exterior.features[key].photos, renderExterior));
   app.querySelectorAll('[data-fencepresent]').forEach(btn=>{
     const side = btn.dataset.fencepresent, v = (btn.dataset.val==='yes');
     bindSingleSelectTap(btn, ()=>p.exterior.fence[side].present, v, (val)=>{ p.exterior.fence[side].present=val; saveCurrent(); renderExterior(); });
@@ -743,6 +774,22 @@ function renderExterior(){
       ()=>p.exterior.fence[side].materials.includes(v),
       ()=>{ p.exterior.fence[side].materials.push(v); saveCurrent(); renderExterior(); },
       ()=>{ p.exterior.fence[side].materials.splice(p.exterior.fence[side].materials.indexOf(v),1); saveCurrent(); renderExterior(); }
+    );
+  });
+  app.querySelectorAll('[data-featpresent]').forEach(btn=>{
+    const key = btn.dataset.featpresent, v = (btn.dataset.val==='yes');
+    bindSingleSelectTap(btn, ()=>p.exterior.features[key].present, v, (val)=>{ p.exterior.features[key].present=val; saveCurrent(); renderExterior(); });
+  });
+  app.querySelectorAll('[data-feattype]').forEach(btn=>{
+    const key = btn.dataset.feattype;
+    bindSingleSelectTap(btn, ()=>p.exterior.features[key].type, btn.dataset.val, (v)=>{ p.exterior.features[key].type=v; saveCurrent(); renderExterior(); });
+  });
+  app.querySelectorAll('[data-featmat]').forEach(btn=>{
+    const key = btn.dataset.featmat, v = btn.dataset.val;
+    bindAddRemoveTap(btn,
+      ()=>p.exterior.features[key].materials.includes(v),
+      ()=>{ p.exterior.features[key].materials.push(v); saveCurrent(); renderExterior(); },
+      ()=>{ p.exterior.features[key].materials.splice(p.exterior.features[key].materials.indexOf(v),1); saveCurrent(); renderExterior(); }
     );
   });
   app.querySelectorAll('[data-comptype]').forEach(btn=>{
@@ -1152,6 +1199,14 @@ function buildNotesText(p){
       put((side==='front'?'Front':'Rear') + ' fence', 'None');
     }
   });
+  EXTERIOR_FEATURES.forEach(([key,label])=>{
+    const feat = p.exterior.features[key];
+    if(feat.present){
+      put(label, [feat.type, feat.materials.join(', ')].filter(Boolean).join(' \u2014 ') || '(details not set)');
+    } else if(feat.present===false){
+      put(label, 'None');
+    }
+  });
   put('Site/exterior notes', p.exterior.notes);
   lines.push('');
 
@@ -1210,6 +1265,7 @@ function collectPhotoFiles(p){
   if(p.exterior.outbuildingPresent) addAll(p.exterior.outbuildingPhotos, 'Outbuilding');
   addAll(p.exterior.fence.front.photos, 'Front fence');
   addAll(p.exterior.fence.rear.photos, 'Rear fence');
+  EXTERIOR_FEATURES.forEach(([key,label])=>{ if(p.exterior.features[key].present) addAll(p.exterior.features[key].photos, label); });
   addAll(p.garage.exteriorPhotos, 'Garage - exterior');
   addAll(p.garage.interiorPhotos, 'Garage - interior');
   p.levels.forEach(lvl=>{
