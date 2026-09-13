@@ -108,20 +108,23 @@ let currentPropId = null;
 let currentSection = null;
 let uiScale = parseFloat(localStorage.getItem('fieldTool.uiScale')) || 1;
 
-const EXTERIOR_TILES = [
+const EXTERIOR_TILES_A = [
   ['front','Front'],
-  ['frontSide1','Front and side'],
-  ['frontSide2','Front and side'],
+  ['frontSide1','Front and side 1'],
+  ['frontSide2','Front and side 2'],
   ['driveway','Driveway'],
   ['streetScene1','Street scene'],
   ['streetScene2','Street scene'],
+];
+const EXTERIOR_TILES_B = [
   ['rear','Rear'],
-  ['rearSide1','Rear and side'],
-  ['rearSide2','Rear and side'],
+  ['rearSide1','Rear and side 1'],
+  ['rearSide2','Rear and side 2'],
   ['porch','Porch'],
   ['patio','Patio'],
   ['deck','Deck'],
 ];
+const EXTERIOR_TILES = [...EXTERIOR_TILES_A, ...EXTERIOR_TILES_B];
 
 // NOTE: these type lists are standard industry terms, not copied from a verified
 // Fannie Mae enumeration list (I couldn't confirm the literal UAD 3.6 wording).
@@ -136,13 +139,18 @@ const EXTERIOR_COMPONENTS = [
 const CEILING_HEIGHT_OPTIONS = ['6 ft or less','7 ft','8 ft','9 ft','10 ft','11 ft','12 ft or more'];
 const CEILING_STYLE_OPTIONS = ['Flat','Vaulted'];
 const CONDITION_OPTIONS = ['New / like new','Typical wear and tear'];
-const FLOORING_OPTIONS = ['Carpet','Hardwood','Laminate / LVP','Tile','Vinyl','Concrete','Other'];
+const FLOORING_OPTIONS = ['Carpet','Wood','Vinyl','LVP','Tile','Laminate','Concrete','Other'];
+const UPDATED_TIMEFRAMES = ['Less than 1 year','1 to 10 years'];
+const FENCE_MATERIALS = ['Wood','Metal','Vinyl','Chain link'];
+const FURNACE_FUELS = ['Gas','Electric','Oil','Propane'];
+const WATER_HEATER_FUELS = ['Gas','Electric'];
 
 const ROOM_NAME_OPTIONS = [
   'Living room','Dining room','Kitchen','Family room','Primary bedroom','Bedroom',
   'Primary bathroom','Bathroom','Half bathroom','Office / den','Laundry room',
-  'Hallway / entry','Loft','Bonus room','Other'
+  'Hallway / entry','Loft','Bonus room','Utility room','Other'
 ];
+function isKitchenOrBath(name){ return /kitchen|bathroom/i.test(name||''); }
 
 function newProperty(address){
   const components = {};
@@ -152,8 +160,13 @@ function newProperty(address){
     address: address || '',
     createdAt: Date.now(),
     exported: false,
+    appointment: null,       // datetime-local string
+    effectiveDate: null,     // date string
+    occupancy: null,         // 'Occupied' | 'Vacant'
+    fileNumber: '',
     exterior: { photos: {}, components, outbuildingPresent: null, outbuildingPhotos: [],
-                entranceHeight: null, drivewayMaterial: null, drivewayCapacity: null, notes: '' },
+                entranceHeight: null, drivewayMaterial: null, drivewayCapacity: null, notes: '',
+                fence: { front: {present:null, materials:[], photos:[]}, rear: {present:null, materials:[], photos:[]} } },
     garage: { capacity: null, attachment: null, exteriorPhotos: [], interiorPhotos: [], notes: '' },
     levels: [],
     generalNotes: ''
@@ -164,11 +177,12 @@ function mkRoom(name){
   return {
     id:'r_'+Date.now()+'_'+Math.random().toString(36).slice(2,6), name:name||'',
     roomPhotos:[], flooringType:null, flooringPhotos:[],
-    ceilingHeight:null, ceilingStyle:null, condition:null, notes:''
+    ceilingHeight:null, ceilingStyle:null, condition:null, notes:'',
+    updated: { yesNo:null, what:'', when:null }
   };
 }
 function mkMechItem(label){
-  return { id:'m_'+Date.now()+'_'+Math.random().toString(36).slice(2,6), label:label||'', photos:[], strapped:null };
+  return { id:'m_'+Date.now()+'_'+Math.random().toString(36).slice(2,6), label:label||'', photos:[], strapped:null, fuelType:null };
 }
 function mkLevel(label){
   const isMech = (label==='Mechanical area');
@@ -312,6 +326,96 @@ function askConfirm(title, message, onYes){
   overlay.querySelector('#modalYes').onclick = ()=>{ overlay.remove(); onYes(); };
 }
 
+function formatAppt(iso){
+  if(!iso) return '';
+  try{
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, {weekday:'short', month:'numeric', day:'numeric', hour:'numeric', minute:'2-digit'});
+  }catch(e){ return iso; }
+}
+
+/* ---------- New property / edit property details, with online-only address autocomplete ---------- */
+function askPropertyDetails(existing, onOk){
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;';
+  const esc = (s)=> (s||'').replace(/"/g,'&quot;');
+  overlay.innerHTML = `<div class="card" style="max-width:440px;width:100%;margin:0;max-height:85vh;overflow-y:auto;">
+    <p class="label">${existing ? 'Edit property details' : 'New property'}</p>
+
+    <p class="fieldhead">Address</p>
+    <input type="text" id="npAddress" value="${existing?esc(existing.address):''}" placeholder="Start typing..." autocomplete="off">
+    <div id="npSuggestions" style="margin-top:6px;display:flex;flex-direction:column;gap:6px;"></div>
+    <p class="hint" id="npAddrHint" style="display:none;">Suggestions need Wi-Fi \u2014 typing still works fine offline.</p>
+
+    <p class="fieldhead">Appointment date & time</p>
+    <input type="datetime-local" id="npAppt" value="${existing&&existing.appointment?existing.appointment:''}" style="width:100%;font-size:17px;font-family:inherit;border:2px solid var(--line);border-radius:12px;padding:12px;min-height:48px;">
+
+    <p class="fieldhead">Effective date</p>
+    <input type="date" id="npEffective" value="${existing&&existing.effectiveDate?existing.effectiveDate:''}" style="width:100%;font-size:17px;font-family:inherit;border:2px solid var(--line);border-radius:12px;padding:12px;min-height:48px;">
+
+    <p class="fieldhead">Occupied or vacant?</p>
+    <div class="chiprow">
+      <button class="chip ${existing&&existing.occupancy==='Occupied'?'selected':''}" data-occ="Occupied">Occupied</button>
+      <button class="chip ${existing&&existing.occupancy==='Vacant'?'selected':''}" data-occ="Vacant">Vacant</button>
+    </div>
+
+    <p class="fieldhead">File number</p>
+    <input type="text" id="npFileNum" value="${existing?esc(existing.fileNumber||''):''}" placeholder="Optional">
+
+    <div class="row" style="margin-top:14px;gap:10px;">
+      <button class="btn" id="modalCancel" style="flex:1;">Cancel</button>
+      <button class="btn btn-accent" id="modalOk" style="flex:1;">${existing?'Save':'Create'}</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+
+  const addrInput = overlay.querySelector('#npAddress');
+  const sugBox = overlay.querySelector('#npSuggestions');
+  const addrHint = overlay.querySelector('#npAddrHint');
+  setTimeout(()=>addrInput.focus(), 50);
+
+  let occupancy = existing ? (existing.occupancy||null) : null;
+  overlay.querySelectorAll('[data-occ]').forEach(btn=>{
+    btn.onclick = ()=>{
+      occupancy = (occupancy===btn.dataset.occ) ? null : btn.dataset.occ;
+      overlay.querySelectorAll('[data-occ]').forEach(b=>b.classList.toggle('selected', b.dataset.occ===occupancy));
+    };
+  });
+
+  let debounceTimer=null;
+  addrInput.oninput = ()=>{
+    clearTimeout(debounceTimer);
+    const q = addrInput.value.trim();
+    sugBox.innerHTML = '';
+    if(q.length<4) { addrHint.style.display='none'; return; }
+    if(!navigator.onLine){ addrHint.style.display='block'; return; }
+    addrHint.style.display='none';
+    debounceTimer = setTimeout(async ()=>{
+      try{
+        const res = await fetch('https://nominatim.openstreetmap.org/search?format=json&addressdetails=0&limit=5&q='+encodeURIComponent(q));
+        const data = await res.json();
+        sugBox.innerHTML = data.map((d,i)=>`<button type="button" class="btn btn-sm" data-sugidx="${i}" style="text-align:left;">${d.display_name}</button>`).join('');
+        sugBox.querySelectorAll('[data-sugidx]').forEach(b=>{
+          b.onclick = ()=>{ addrInput.value = data[parseInt(b.dataset.sugidx,10)].display_name; sugBox.innerHTML=''; };
+        });
+      }catch(e){ /* offline or blocked - plain typing still works, fail silently */ }
+    }, 450);
+  };
+
+  overlay.querySelector('#modalCancel').onclick = ()=>overlay.remove();
+  overlay.querySelector('#modalOk').onclick = ()=>{
+    const data = {
+      address: addrInput.value.trim(),
+      appointment: overlay.querySelector('#npAppt').value || null,
+      effectiveDate: overlay.querySelector('#npEffective').value || null,
+      occupancy: occupancy,
+      fileNumber: overlay.querySelector('#npFileNum').value.trim()
+    };
+    overlay.remove();
+    onOk(data);
+  };
+}
+
 /* ---------- Tap vs. long-press helper ---------- */
 function bindTapHold(el, onTap, onHold, holdMs){
   holdMs = holdMs || 550;
@@ -346,12 +450,23 @@ function bindAddRemoveTap(el, isSelected, onAdd, onRemove){
 }
 
 /* ---------- Render: Home ---------- */
+let homeView = 'active';
 function renderHome(){
   const app = document.getElementById('app');
-  const rows = properties.map(p=>`
+  const list = properties.filter(p => homeView==='archived' ? p.exported : !p.exported);
+  list.sort((a,b)=>{
+    if(!a.appointment && !b.appointment) return a.createdAt-b.createdAt;
+    if(!a.appointment) return 1;
+    if(!b.appointment) return -1;
+    return a.appointment.localeCompare(b.appointment);
+  });
+  const rows = list.map(p=>`
     <div class="proprow">
-      <button class="navrow" data-open="${p.id}">
-        <span>${p.address || '(no address yet)'}</span>
+      <button class="navrow" data-open="${p.id}" style="align-items:flex-start;">
+        <span>
+          ${p.address || '(no address yet)'}
+          ${p.appointment ? `<br><span style="font-size:14px;font-weight:500;color:var(--sub);">${formatAppt(p.appointment)}</span>` : ''}
+        </span>
         <span class="count ${p.exported?'done':''}">${p.exported?'synced':'not synced'}</span>
       </button>
       <div class="sidebtns">
@@ -362,16 +477,22 @@ function renderHome(){
   `).join('');
   app.innerHTML = `
     <div class="topbar" style="display:flex;align-items:center;justify-content:space-between;">
-      <h1>Today's properties</h1>
+      <h1>${homeView==='archived' ? 'Archived' : "Today's properties"}</h1>
       <button class="btn btn-sm" id="settingsBtn">Settings</button>
     </div>
     <div class="content">
-      <div class="section-list">${rows || '<p class="hint">No properties yet. Add one below.</p>'}</div>
+      <div class="chiprow" style="margin-top:0;margin-bottom:14px;">
+        <button class="chip ${homeView==='active'?'selected':''}" id="viewActive">Active</button>
+        <button class="chip ${homeView==='archived'?'selected':''}" id="viewArchived">Archived</button>
+      </div>
+      <div class="section-list">${rows || '<p class="hint">Nothing here yet.</p>'}</div>
     </div>
     <div class="footer-actions">
       <button class="btn btn-accent" id="addPropBtn">+ New property</button>
     </div>
   `;
+  document.getElementById('viewActive').onclick = ()=>{ homeView='active'; renderHome(); };
+  document.getElementById('viewArchived').onclick = ()=>{ homeView='archived'; renderHome(); };
   document.getElementById('settingsBtn').onclick = ()=>renderSettings();
   app.querySelectorAll('[data-open]').forEach(btn=>{
     btn.onclick = ()=>{ currentPropId = btn.dataset.open; currentSection=null; renderPropertyHome(); };
@@ -390,12 +511,15 @@ function renderHome(){
     };
   });
   document.getElementById('addPropBtn').onclick = ()=>{
-    askText('Property address', 'e.g. 123 Main St', (addr)=>{
-      if(addr && addr.trim()){
-        const p = newProperty(addr.trim());
-        properties.push(p);
-        dbPut(p).then(()=>{ currentPropId=p.id; renderPropertyHome(); });
-      }
+    askPropertyDetails(null, (data)=>{
+      if(!data.address) return;
+      const p = newProperty(data.address);
+      p.appointment = data.appointment;
+      p.effectiveDate = data.effectiveDate;
+      p.occupancy = data.occupancy;
+      p.fileNumber = data.fileNumber;
+      properties.push(p);
+      dbPut(p).then(()=>{ currentPropId=p.id; renderPropertyHome(); });
     });
   };
 }
@@ -436,10 +560,20 @@ function renderSettings(){
 function renderPropertyHome(){
   const p = findProp(currentPropId);
   const app = document.getElementById('app');
+  const metaBits = [];
+  if(p.appointment) metaBits.push(formatAppt(p.appointment));
+  if(p.occupancy) metaBits.push(p.occupancy);
+  if(p.fileNumber) metaBits.push('File #' + p.fileNumber);
   app.innerHTML = `
     <div class="topbar">
       <button class="backbtn" id="backHome">&larr; Back to all properties</button>
-      <h1>${p.address}</h1>
+      <div class="row" style="align-items:flex-start;">
+        <div>
+          <h1>${p.address}</h1>
+          ${metaBits.length ? `<p class="sub" style="margin-top:4px;">${metaBits.join(' \u2022 ')}</p>` : ''}
+        </div>
+        <button class="btn btn-sm" id="editDetailsBtn">Edit details</button>
+      </div>
     </div>
     <div class="content">
       <div class="section-list">
@@ -454,6 +588,17 @@ function renderPropertyHome(){
     </div>
   `;
   document.getElementById('backHome').onclick = ()=>{ currentPropId=null; renderHome(); };
+  document.getElementById('editDetailsBtn').onclick = ()=>{
+    askPropertyDetails(p, (data)=>{
+      p.address = data.address || p.address;
+      p.appointment = data.appointment;
+      p.effectiveDate = data.effectiveDate;
+      p.occupancy = data.occupancy;
+      p.fileNumber = data.fileNumber;
+      saveCurrent();
+      renderPropertyHome();
+    });
+  };
   app.querySelectorAll('[data-sec]').forEach(btn=>{
     btn.onclick = ()=>{ currentSection=btn.dataset.sec; renderSection(); };
   });
@@ -513,10 +658,29 @@ function componentCardHTML(key,label,typeOptions,comp){
     </div>`;
 }
 
+function fenceSideHTML(side, label, data){
+  const matChips = FENCE_MATERIALS.map(v=>`<button class="chip ${data.materials.includes(v)?'selected':''}" data-fencemat="${side}" data-val="${v}">${v}</button>`).join('');
+  return `
+    <div class="card">
+      <p class="label">${label} fence present?</p>
+      <div class="chiprow">
+        <button class="chip ${data.present===true?'selected':''}" data-fencepresent="${side}" data-val="yes">Yes</button>
+        <button class="chip ${data.present===false?'selected':''}" data-fencepresent="${side}" data-val="no">No</button>
+      </div>
+      ${data.present ? `
+        <p class="fieldhead">Material</p>
+        <p class="sub">Tap all that apply</p>
+        <div class="chiprow">${matChips}</div>
+        ${photoTileHTML('fence_'+side, label+' fence photo', data.photos)}
+      ` : ''}
+    </div>`;
+}
+
 function renderExterior(){
   const p = findProp(currentPropId);
   const app = document.getElementById('app');
-  const tilesHTML = EXTERIOR_TILES.map(([k,label])=>photoTileHTML(k,label,p.exterior.photos[k])).join('');
+  const tilesA = EXTERIOR_TILES_A.map(([k,label])=>photoTileHTML(k,label,p.exterior.photos[k])).join('');
+  const tilesB = EXTERIOR_TILES_B.map(([k,label])=>photoTileHTML(k,label,p.exterior.photos[k])).join('');
   const componentsHTML = EXTERIOR_COMPONENTS.map(([key,label,opts])=>componentCardHTML(key,label,opts,p.exterior.components[key])).join('');
   const heightOptions = ['0-1 ft','1-2 ft','2-3 ft','3-4 ft','4+ ft'];
   const heightChips = heightOptions.map(v=>`<button class="chip ${p.exterior.entranceHeight===v?'selected':''}" data-height="${v}">${v}</button>`).join('');
@@ -532,7 +696,9 @@ function renderExterior(){
       <h1>Exterior</h1>
     </div>
     <div class="content">
-      ${tilesHTML}
+      ${tilesA}
+      ${fenceSideHTML('front','Front', p.exterior.fence.front)}
+      ${tilesB}
       ${componentsHTML}
       <div class="card">
         <div class="row"><p class="label">Outbuilding present?</p></div>
@@ -565,6 +731,20 @@ function renderExterior(){
   document.getElementById('backHomeBtn').onclick = ()=>renderPropertyHome();
   EXTERIOR_TILES.forEach(([k])=> wirePhotoTile(app, k, ()=>(p.exterior.photos[k]=p.exterior.photos[k]||[]), renderExterior));
   wirePhotoTile(app, 'outbuilding', ()=>p.exterior.outbuildingPhotos, renderExterior);
+  wirePhotoTile(app, 'fence_front', ()=>p.exterior.fence.front.photos, renderExterior);
+  wirePhotoTile(app, 'fence_rear', ()=>p.exterior.fence.rear.photos, renderExterior);
+  app.querySelectorAll('[data-fencepresent]').forEach(btn=>{
+    const side = btn.dataset.fencepresent, v = (btn.dataset.val==='yes');
+    bindSingleSelectTap(btn, ()=>p.exterior.fence[side].present, v, (val)=>{ p.exterior.fence[side].present=val; saveCurrent(); renderExterior(); });
+  });
+  app.querySelectorAll('[data-fencemat]').forEach(btn=>{
+    const side = btn.dataset.fencemat, v = btn.dataset.val;
+    bindAddRemoveTap(btn,
+      ()=>p.exterior.fence[side].materials.includes(v),
+      ()=>{ p.exterior.fence[side].materials.push(v); saveCurrent(); renderExterior(); },
+      ()=>{ p.exterior.fence[side].materials.splice(p.exterior.fence[side].materials.indexOf(v),1); saveCurrent(); renderExterior(); }
+    );
+  });
   app.querySelectorAll('[data-comptype]').forEach(btn=>{
     const comp = p.exterior.components[btn.dataset.comptype];
     const v = btn.dataset.val;
@@ -660,15 +840,31 @@ function renderRooms(){
     const styleChips = CEILING_STYLE_OPTIONS.map(v=>`<button class="chip ${r.ceilingStyle===v?'selected':''}" data-style="${r.id}" data-styleval="${v}">${v}</button>`).join('');
     const condChips = CONDITION_OPTIONS.map(v=>`<button class="chip ${r.condition===v?'selected':''}" data-cond="${r.id}" data-condval="${v}">${v}</button>`).join('');
     const floorChips = FLOORING_OPTIONS.map(v=>`<button class="chip ${r.flooringType===v?'selected':''}" data-floor="${r.id}" data-floorval="${v}">${v}</button>`).join('');
+    const updatedBlock = isKitchenOrBath(r.name) ? `
+      <p class="fieldhead">Updated?</p>
+      <div class="chiprow">
+        <button class="chip ${r.updated.yesNo===true?'selected':''}" data-updyn="${r.id}" data-val="yes">Yes</button>
+        <button class="chip ${r.updated.yesNo===false?'selected':''}" data-updyn="${r.id}" data-val="no">No</button>
+      </div>
+      ${r.updated.yesNo ? `
+        <input type="text" data-updwhat="${r.id}" value="${(r.updated.what||'').replace(/"/g,'&quot;')}" placeholder="What was updated (e.g. Appliances)" style="margin-top:8px;">
+        <div class="chiprow">
+          ${UPDATED_TIMEFRAMES.map(v=>`<button class="chip ${r.updated.when===v?'selected':''}" data-updwhen="${r.id}" data-val="${v}">${v}</button>`).join('')}
+        </div>
+      ` : ''}
+    ` : '';
     return `
     <div class="roomcard" data-roomid="${r.id}">
-      <div class="row">
-        <select data-roomselect="${r.id}" style="flex:1;">${nameOpts}</select>
-        <button class="btn btn-sm" data-delroom="${r.id}">Remove</button>
+      <div class="row" style="align-items:flex-start;gap:12px;">
+        <div style="flex:1;">
+          <select data-roomselect="${r.id}" style="width:100%;font-weight:700;font-size:19px;">${nameOpts}</select>
+          ${showOtherBox ? `<input type="text" data-roomcustom="${r.id}" value="${r.name==='Other'?'':r.name}" placeholder="Type room name" style="margin-top:8px;">` : ''}
+          <button class="btn btn-sm" data-delroom="${r.id}" style="margin-top:8px;">Remove</button>
+        </div>
+        <div style="flex:1;">
+          ${photoTileHTML('room_'+r.id, 'Photo of room', r.roomPhotos)}
+        </div>
       </div>
-      ${showOtherBox ? `<input type="text" data-roomcustom="${r.id}" value="${r.name==='Other'?'':r.name}" placeholder="Type room name" style="margin-top:8px;">` : ''}
-
-      ${photoTileHTML('room_'+r.id, 'Photo of room', r.roomPhotos)}
 
       <p class="fieldhead">Flooring type</p>
       <div class="chiprow">${floorChips}</div>
@@ -684,13 +880,17 @@ function renderRooms(){
       <p class="fieldhead">Condition</p>
       <div class="chiprow">${condChips}</div>
 
+      ${updatedBlock}
+
       <p class="fieldhead">Notes</p>
       <textarea data-roomnotes="${r.id}" placeholder="Anything specific to this room...">${r.notes||''}</textarea>
     </div>`;
   };
 
   const mechCardHTML = (item)=>{
-    const isWaterHeater = (item.label||'').trim().toLowerCase()==='water heater';
+    const lbl = (item.label||'').trim().toLowerCase();
+    const isWaterHeater = lbl==='water heater';
+    const isFurnace = lbl==='furnace';
     return `
     <div class="mechcard" data-mechid="${item.id}">
       <div class="row">
@@ -698,7 +898,17 @@ function renderRooms(){
         <button class="btn btn-sm" data-delmech="${item.id}">Remove</button>
       </div>
       ${photoTileHTML('mech_'+item.id, item.label || 'Photo', item.photos)}
+      ${isFurnace ? `
+        <p class="fieldhead">Fuel type</p>
+        <div class="chiprow">
+          ${FURNACE_FUELS.map(v=>`<button class="chip ${item.fuelType===v?'selected':''}" data-fuel="${item.id}" data-val="${v}">${v}</button>`).join('')}
+        </div>
+      ` : ''}
       ${isWaterHeater ? `
+        <p class="fieldhead">Fuel type</p>
+        <div class="chiprow">
+          ${WATER_HEATER_FUELS.map(v=>`<button class="chip ${item.fuelType===v?'selected':''}" data-fuel="${item.id}" data-val="${v}">${v}</button>`).join('')}
+        </div>
         <div class="row" style="margin-top:4px;">
           <p class="label" style="font-size:17px;">Water heater strapped?</p>
           <div class="chiprow" style="margin-top:0;">
@@ -835,6 +1045,18 @@ function renderRooms(){
     const r = findRoomAnyLevel(p,btn.dataset.floor);
     bindSingleSelectTap(btn, ()=>r.flooringType, btn.dataset.floorval, (v)=>{ r.flooringType=v; saveCurrent(); renderRooms(); });
   });
+  app.querySelectorAll('[data-updyn]').forEach(btn=>{
+    const r = findRoomAnyLevel(p,btn.dataset.updyn);
+    const v = (btn.dataset.val==='yes');
+    bindSingleSelectTap(btn, ()=>r.updated.yesNo, v, (val)=>{ r.updated.yesNo=val; saveCurrent(); renderRooms(); });
+  });
+  app.querySelectorAll('[data-updwhat]').forEach(inp=>{
+    inp.onblur = ()=>{ findRoomAnyLevel(p,inp.dataset.updwhat).updated.what = inp.value; saveCurrent(); };
+  });
+  app.querySelectorAll('[data-updwhen]').forEach(btn=>{
+    const r = findRoomAnyLevel(p,btn.dataset.updwhen);
+    bindSingleSelectTap(btn, ()=>r.updated.when, btn.dataset.val, (v)=>{ r.updated.when=v; saveCurrent(); renderRooms(); });
+  });
   p.levels.filter(l=>l.kind==='rooms').forEach(lvl=>{
     lvl.rooms.forEach(r=>{
       wirePhotoTile(app, 'room_'+r.id, ()=>r.roomPhotos, renderRooms);
@@ -870,6 +1092,12 @@ function renderRooms(){
       ()=>{ item.strapped = null; saveCurrent(); toast('Cleared.'); renderRooms(); }
     );
   });
+  app.querySelectorAll('[data-fuel]').forEach(btn=>{
+    const itemId = btn.dataset.fuel;
+    const lvl = p.levels.find(l=>l.kind==='mechanical' && l.rooms.some(m=>m.id===itemId));
+    const item = lvl.rooms.find(m=>m.id===itemId);
+    bindSingleSelectTap(btn, ()=>item.fuelType, btn.dataset.val, (v)=>{ item.fuelType=v; saveCurrent(); renderRooms(); });
+  });
   p.levels.filter(l=>l.kind==='mechanical').forEach(lvl=>{
     lvl.rooms.forEach(item=>{ wirePhotoTile(app, 'mech_'+item.id, ()=>item.photos, renderRooms); });
   });
@@ -901,6 +1129,10 @@ function buildNotesText(p){
   const put = (label, val) => { if(val!==null && val!==undefined && val!=='') lines.push(label + ': ' + val); };
 
   lines.push('FIELD NOTES \u2014 ' + p.address);
+  put('File number', p.fileNumber);
+  put('Inspection date/time', p.appointment ? formatAppt(p.appointment) : null);
+  put('Effective date', p.effectiveDate);
+  put('Occupancy', p.occupancy);
   lines.push('');
   lines.push('EXTERIOR');
   EXTERIOR_COMPONENTS.forEach(([key,label])=>{
@@ -912,6 +1144,14 @@ function buildNotesText(p){
   put('Driveway material', p.exterior.drivewayMaterial);
   put('Driveway capacity', p.exterior.drivewayCapacity ? p.exterior.drivewayCapacity + ' car' : null);
   put('Outbuilding present', f(p.exterior.outbuildingPresent));
+  ['front','rear'].forEach(side=>{
+    const fen = p.exterior.fence[side];
+    if(fen.present){
+      put((side==='front'?'Front':'Rear') + ' fence', fen.materials.join(', ') || '(material not set)');
+    } else if(fen.present===false){
+      put((side==='front'?'Front':'Rear') + ' fence', 'None');
+    }
+  });
   put('Site/exterior notes', p.exterior.notes);
   lines.push('');
 
@@ -929,6 +1169,7 @@ function buildNotesText(p){
       lvl.rooms.forEach(item=>{
         if(!item.label && item.photos.length===0) return;
         put(item.label || 'Unlabeled item', item.photos.length + ' photo(s) attached');
+        put('  Fuel type', item.fuelType);
         if((item.label||'').trim().toLowerCase()==='water heater') put('Water heater strapped', f(item.strapped));
       });
     } else {
@@ -941,6 +1182,11 @@ function buildNotesText(p){
         put('  Ceiling height', r.ceilingHeight);
         put('  Ceiling style', r.ceilingStyle);
         put('  Condition', r.condition);
+        if(r.updated && r.updated.yesNo){
+          put('  Updated', [r.updated.what, r.updated.when].filter(Boolean).join(' \u2014 '));
+        } else if(r.updated && r.updated.yesNo===false){
+          put('  Updated', 'No');
+        }
         put('  Room notes', r.notes);
       });
     }
@@ -962,6 +1208,8 @@ function collectPhotoFiles(p){
   };
   EXTERIOR_TILES.forEach(([k,label])=> addAll(p.exterior.photos[k], label));
   if(p.exterior.outbuildingPresent) addAll(p.exterior.outbuildingPhotos, 'Outbuilding');
+  addAll(p.exterior.fence.front.photos, 'Front fence');
+  addAll(p.exterior.fence.rear.photos, 'Rear fence');
   addAll(p.garage.exteriorPhotos, 'Garage - exterior');
   addAll(p.garage.interiorPhotos, 'Garage - interior');
   p.levels.forEach(lvl=>{
@@ -1028,7 +1276,6 @@ async function renderExport(){
   };
 }
 
-/* ---------- Boot ---------- */
 /* ---------- Boot ---------- */
 (async function boot(){
   document.getElementById('app').style.zoom = uiScale;
