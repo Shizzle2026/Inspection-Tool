@@ -119,6 +119,7 @@ const EXTERIOR_TILES_STREET = [
 ];
 const EXTERIOR_TILES_REAR = [
   ['rear','Rear'],
+  ['alley','Alley'],
   ['rearSide1','Rear and side 1'],
   ['rearSide2','Rear and side 2'],
 ];
@@ -131,9 +132,9 @@ const FOUNDATION_TYPES = ['Slab','Partial basement','Full basement','Crawlspace'
 // Fannie Mae enumeration list (I couldn't confirm the literal UAD 3.6 wording).
 // Easy to relabel here once you compare against AIVRE's actual dropdowns.
 const EXTERIOR_COMPONENTS = [
-  ['sidingTrim','Siding and trim', ['Vinyl','Wood','Brick','Brick veneer','Stucco','Fiber cement','Aluminum','Stone veneer','Log','Composite','Other']],
-  ['windows','Windows', ['Single hung','Double hung','Casement','Sliding','Awning','Fixed','Bay / bow','Wood-framed','Vinyl-framed','Single-pane','Multi-pane','Other']],
-  ['roof','Roof', ['Composition shingle','Architectural shingle','Preformed metal','Tile','Slate','Wood shake','Flat / membrane','Other']],
+  ['sidingTrim','Siding and trim', ['Vinyl','Wood','Brick','Brick veneer','Stucco','Fiber cement','Aluminum','Stone veneer','Log','Composite','Other'], 'Material'],
+  ['windows','Windows', ['Wood-framed','Metal framed','Vinyl-framed','Single-pane','Double pane','Multi-pane','Other']],
+  ['roof','Roof', ['Composition shingle','Architectural shingle','Preformed metal','Tile','Slate','Wood shake','Flat / membrane','Other'], 'Material'],
 ];
 
 const CEILING_HEIGHT_OPTIONS = ['6 ft or less','7 ft','8 ft','9 ft','10 ft','11 ft','12 ft or more'];
@@ -182,6 +183,7 @@ function newProperty(address){
                 fence: { front: {present:null, materials:[], photos:[]}, rear: {present:null, materials:[], photos:[]} },
                 driveway: { present:null, materials:[], capacity:null, photos:[] },
                 garage: { present:null, capacity:null, attachment:null, exteriorPhotos:[], interiorPhotos:[] },
+                sprinkler: { present:null, photos:[] },
                 foundation: { materials:[], types:[], condition:null } },
     levels: [],
     generalNotes: ''
@@ -653,13 +655,13 @@ function wirePhotoTile(container, key, getArr, rerender){
 }
 
 /* ---------- Render: Exterior ---------- */
-function componentCardHTML(key,label,typeOptions,comp){
+function componentCardHTML(key,label,typeOptions,comp,typeFieldLabel){
   const typeChips = typeOptions.map(v=>`<button class="chip ${comp.types.includes(v)?'selected':''}" data-comptype="${key}" data-val="${v}">${v}</button>`).join('');
   const condChips = CONDITION_OPTIONS.map(v=>`<button class="chip ${comp.condition===v?'selected':''}" data-compcond="${key}" data-val="${v}">${v}</button>`).join('');
   return `
     <div class="card">
       <p class="label">${label}</p>
-      <p class="fieldhead">Type</p>
+      <p class="fieldhead">${typeFieldLabel || 'Type'}</p>
       <p class="sub">Tap all that apply</p>
       <div class="chiprow">${typeChips}</div>
       <p class="fieldhead">Condition</p>
@@ -786,13 +788,29 @@ function garageCardHTML(g){
     </div>`;
 }
 
+function sprinklerCardHTML(s){
+  return `
+    <div class="card">
+      <div class="row" style="align-items:flex-start;">
+        <div style="flex:1;">
+          <p class="label">Sprinkler system present?</p>
+          <div class="chiprow">
+            <button class="chip ${s.present===true?'selected':''}" data-sprinkpresent="yes">Yes</button>
+            <button class="chip ${s.present===false?'selected':''}" data-sprinkpresent="no">No</button>
+          </div>
+        </div>
+        ${s.present ? `<div style="flex:1;">${photoTileHTML('sprinkler_photo','Sprinkler photo', s.photos)}</div>` : ''}
+      </div>
+    </div>`;
+}
+
 function renderExterior(){
   const p = findProp(currentPropId);
   const app = document.getElementById('app');
   const tilesFront = EXTERIOR_TILES_FRONT.map(([k,label])=>photoTileHTML(k,label,p.exterior.photos[k])).join('');
   const tilesStreet = EXTERIOR_TILES_STREET.map(([k,label])=>photoTileHTML(k,label,p.exterior.photos[k])).join('');
   const tilesRear = EXTERIOR_TILES_REAR.map(([k,label])=>photoTileHTML(k,label,p.exterior.photos[k])).join('');
-  const componentsHTML = EXTERIOR_COMPONENTS.map(([key,label,opts])=>componentCardHTML(key,label,opts,p.exterior.components[key])).join('');
+  const componentsHTML = EXTERIOR_COMPONENTS.map(([key,label,opts,typeFieldLabel])=>componentCardHTML(key,label,opts,p.exterior.components[key],typeFieldLabel)).join('');
   const heightOptions = ['0-1 ft','1-2 ft','2-3 ft','3-4 ft','4+ ft'];
   const heightChips = heightOptions.map(v=>`<button class="chip ${p.exterior.entranceHeight===v?'selected':''}" data-height="${v}">${v}</button>`).join('');
 
@@ -810,6 +828,7 @@ function renderExterior(){
       ${fenceSideHTML('front','Front', p.exterior.fence.front)}
       ${fenceSideHTML('rear','Rear', p.exterior.fence.rear)}
       ${tilesRear}
+      ${sprinklerCardHTML(p.exterior.sprinkler)}
       ${featureCardHTML('porch','Porch', p.exterior.features.porch, ...EXTERIOR_FEATURES.find(f=>f[0]==='porch').slice(2))}
       <div class="card">
         <p class="label">Entrance height above grade</p>
@@ -844,6 +863,7 @@ function renderExterior(){
   wirePhotoTile(app, 'driveway_photo', ()=>p.exterior.driveway.photos, renderExterior);
   wirePhotoTile(app, 'garage_ext', ()=>p.exterior.garage.exteriorPhotos, renderExterior);
   wirePhotoTile(app, 'garage_int', ()=>p.exterior.garage.interiorPhotos, renderExterior);
+  wirePhotoTile(app, 'sprinkler_photo', ()=>p.exterior.sprinkler.photos, renderExterior);
   EXTERIOR_FEATURES.forEach(([key])=> wirePhotoTile(app, key+'_photo', ()=>p.exterior.features[key].photos, renderExterior));
 
   app.querySelectorAll('[data-fencepresent]').forEach(btn=>{
@@ -898,6 +918,10 @@ function renderExterior(){
   });
   app.querySelectorAll('[data-garageatt]').forEach(btn=>{
     bindSingleSelectTap(btn, ()=>p.exterior.garage.attachment, btn.dataset.garageatt, (v)=>{ p.exterior.garage.attachment=v; saveCurrent(); renderExterior(); });
+  });
+  app.querySelectorAll('[data-sprinkpresent]').forEach(btn=>{
+    const v = (btn.dataset.sprinkpresent==='yes');
+    bindSingleSelectTap(btn, ()=>p.exterior.sprinkler.present, v, (val)=>{ p.exterior.sprinkler.present=val; saveCurrent(); renderExterior(); });
   });
   app.querySelectorAll('[data-foundmat]').forEach(btn=>{
     const v = btn.dataset.foundmat;
@@ -1301,6 +1325,7 @@ function buildNotesText(p){
   } else if(gar.present===false){
     put('Garage', 'None');
   }
+  put('Sprinkler system present', f(p.exterior.sprinkler.present));
   put('Site/exterior notes', p.exterior.notes);
   lines.push('');
 
@@ -1357,6 +1382,7 @@ function collectPhotoFiles(p){
     addAll(p.exterior.garage.exteriorPhotos, 'Garage - exterior');
     addAll(p.exterior.garage.interiorPhotos, 'Garage - interior');
   }
+  if(p.exterior.sprinkler.present) addAll(p.exterior.sprinkler.photos, 'Sprinkler system');
   p.levels.forEach(lvl=>{
     if(lvl.kind==='mechanical'){
       lvl.rooms.forEach(item=> addAll(item.photos, lvl.label + ' - ' + (item.label||'Item')));
