@@ -689,16 +689,20 @@ function fenceSideHTML(side, label, data){
   const matChips = FENCE_MATERIALS.map(v=>`<button class="chip ${data.materials.includes(v)?'selected':''}" data-fencemat="${side}" data-val="${v}">${v}</button>`).join('');
   return `
     <div class="card">
-      <p class="label">${label} fence present?</p>
-      <div class="chiprow">
-        <button class="chip ${data.present===true?'selected':''}" data-fencepresent="${side}" data-val="yes">Yes</button>
-        <button class="chip ${data.present===false?'selected':''}" data-fencepresent="${side}" data-val="no">No</button>
+      <div class="row" style="align-items:flex-start;">
+        <div style="flex:1;">
+          <p class="label">${label} fence present?</p>
+          <div class="chiprow">
+            <button class="chip ${data.present===true?'selected':''}" data-fencepresent="${side}" data-val="yes">Yes</button>
+            <button class="chip ${data.present===false?'selected':''}" data-fencepresent="${side}" data-val="no">No</button>
+          </div>
+        </div>
+        ${data.present ? `<div style="flex:1;">${photoTileHTML('fence_'+side, label+' fence photo', data.photos)}</div>` : ''}
       </div>
       ${data.present ? `
         <p class="fieldhead">Material</p>
         <p class="sub">Tap all that apply</p>
         <div class="chiprow">${matChips}</div>
-        ${photoTileHTML('fence_'+side, label+' fence photo', data.photos)}
       ` : ''}
     </div>`;
 }
@@ -708,10 +712,15 @@ function featureCardHTML(key, label, data, typeOptions, materialOptions){
   const matChips = materialOptions.map(v=>`<button class="chip ${data.materials.includes(v)?'selected':''}" data-featmat="${key}" data-val="${v}">${v}</button>`).join('');
   return `
     <div class="card">
-      <p class="label">${label} present?</p>
-      <div class="chiprow">
-        <button class="chip ${data.present===true?'selected':''}" data-featpresent="${key}" data-val="yes">Yes</button>
-        <button class="chip ${data.present===false?'selected':''}" data-featpresent="${key}" data-val="no">No</button>
+      <div class="row" style="align-items:flex-start;">
+        <div style="flex:1;">
+          <p class="label">${label} present?</p>
+          <div class="chiprow">
+            <button class="chip ${data.present===true?'selected':''}" data-featpresent="${key}" data-val="yes">Yes</button>
+            <button class="chip ${data.present===false?'selected':''}" data-featpresent="${key}" data-val="no">No</button>
+          </div>
+        </div>
+        ${data.present ? `<div style="flex:1;">${photoTileHTML(key+'_photo', label+' photo', data.photos)}</div>` : ''}
       </div>
       ${data.present ? `
         <p class="fieldhead">Type</p>
@@ -719,7 +728,6 @@ function featureCardHTML(key, label, data, typeOptions, materialOptions){
         <p class="fieldhead">Material</p>
         <p class="sub">Tap all that apply</p>
         <div class="chiprow">${matChips}</div>
-        ${photoTileHTML(key+'_photo', label+' photo', data.photos)}
       ` : ''}
     </div>`;
 }
@@ -729,10 +737,15 @@ function drivewayCardHTML(d){
   const capChips = DRIVEWAY_CAPACITIES.map(v=>`<button class="chip ${d.capacity===v?'selected':''}" data-drivecap="${v}">${v} car</button>`).join('');
   return `
     <div class="card">
-      <p class="label">Driveway present?</p>
-      <div class="chiprow">
-        <button class="chip ${d.present===true?'selected':''}" data-drivepresent="yes">Yes</button>
-        <button class="chip ${d.present===false?'selected':''}" data-drivepresent="no">No</button>
+      <div class="row" style="align-items:flex-start;">
+        <div style="flex:1;">
+          <p class="label">Driveway present?</p>
+          <div class="chiprow">
+            <button class="chip ${d.present===true?'selected':''}" data-drivepresent="yes">Yes</button>
+            <button class="chip ${d.present===false?'selected':''}" data-drivepresent="no">No</button>
+          </div>
+        </div>
+        ${d.present ? `<div style="flex:1;">${photoTileHTML('driveway_photo','Driveway photo', d.photos)}</div>` : ''}
       </div>
       ${d.present ? `
         <p class="fieldhead">Material</p>
@@ -740,7 +753,6 @@ function drivewayCardHTML(d){
         <div class="chiprow">${matChips}</div>
         <p class="fieldhead">Capacity (cars)</p>
         <div class="chiprow">${capChips}</div>
-        ${photoTileHTML('driveway_photo','Driveway photo', d.photos)}
       ` : ''}
     </div>`;
 }
@@ -750,14 +762,20 @@ function garageCardHTML(g){
   const attChips = GARAGE_ATTACHMENTS.map(v=>`<button class="chip ${g.attachment===v?'selected':''}" data-garageatt="${v}">${v}</button>`).join('');
   return `
     <div class="card">
-      <p class="label">Garage present?</p>
-      <div class="chiprow">
-        <button class="chip ${g.present===true?'selected':''}" data-garagepresent="yes">Yes</button>
-        <button class="chip ${g.present===false?'selected':''}" data-garagepresent="no">No</button>
+      <div class="row" style="align-items:flex-start;">
+        <div style="flex:1;">
+          <p class="label">Garage present?</p>
+          <div class="chiprow">
+            <button class="chip ${g.present===true?'selected':''}" data-garagepresent="yes">Yes</button>
+            <button class="chip ${g.present===false?'selected':''}" data-garagepresent="no">No</button>
+          </div>
+        </div>
+        ${g.present ? `<div style="flex:1;">
+          ${photoTileHTML('garage_ext','Garage \u2014 exterior photo', g.exteriorPhotos)}
+          ${photoTileHTML('garage_int','Garage \u2014 interior photo', g.interiorPhotos)}
+        </div>` : ''}
       </div>
       ${g.present ? `
-        ${photoTileHTML('garage_ext','Garage \u2014 exterior photo', g.exteriorPhotos)}
-        ${photoTileHTML('garage_int','Garage \u2014 interior photo', g.interiorPhotos)}
         <p class="fieldhead">Capacity</p>
         <div class="chiprow">${capChips}</div>
         <p class="fieldhead">Attached or detached</p>
