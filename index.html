@@ -1484,10 +1484,10 @@ async function renderExport(){
     <div class="content">
       <div class="card">
         <p class="label">Ready to send to Dropbox</p>
-        <p class="sub">Needs Wi-Fi. One ZIP file is the most reliable way to share a full property at once.</p>
+        <p class="sub" id="zipStatusSub">Needs Wi-Fi. Preparing the ZIP now so Share fires instantly\u2026</p>
       </div>
-      <button class="btn btn-accent" id="shareZipBtn" style="width:100%;margin-bottom:12px;">Share as one ZIP file</button>
-      <button class="btn" id="downloadZipBtn" style="width:100%;margin-bottom:12px;">Download one ZIP file</button>
+      <button class="btn btn-accent" id="shareZipBtn" style="width:100%;margin-bottom:12px;" disabled>Preparing\u2026</button>
+      <button class="btn" id="downloadZipBtn" style="width:100%;margin-bottom:12px;" disabled>Preparing\u2026</button>
       <button class="btn" id="shareBtn" style="width:100%;margin-bottom:12px;">Share notes & photos separately</button>
       <button class="btn" id="downloadBtn" style="width:100%;margin-bottom:12px;">Download files separately</button>
       <button class="btn" id="markSyncedBtn" style="width:100%;">Mark as synced</button>
@@ -1503,30 +1503,40 @@ async function renderExport(){
     return [notesFile, ...collectPhotoFiles(p)];
   };
 
+  // Build the ZIP the moment this screen opens, not when the button is tapped -
+  // that way there's no async work left to do between your tap and the actual
+  // share() call, which is what was likely tripping the permission error.
+  let zipFile = null;
+  buildZip(getAllFiles()).then((zipBlob)=>{
+    zipFile = new File([zipBlob], sanitize(p.address) + '.zip', {type:'application/zip'});
+    document.getElementById('shareZipBtn').disabled = false;
+    document.getElementById('shareZipBtn').textContent = 'Share as one ZIP file';
+    document.getElementById('downloadZipBtn').disabled = false;
+    document.getElementById('downloadZipBtn').textContent = 'Download one ZIP file';
+    document.getElementById('zipStatusSub').textContent = 'Needs Wi-Fi. One ZIP file is the most reliable way to share a full property at once.';
+  }).catch(()=>{
+    document.getElementById('zipStatusSub').textContent = 'Could not prepare the ZIP \u2014 use "Download files separately" below instead.';
+  });
+
   document.getElementById('shareZipBtn').onclick = async ()=>{
-    toast('Building ZIP\u2026', 3000);
-    const allFiles = getAllFiles();
-    const zipBlob = await buildZip(allFiles);
-    const zipFile = new File([zipBlob], sanitize(p.address) + '.zip', {type:'application/zip'});
+    if(!zipFile){ toast('Still preparing \u2014 give it one more second.', 3000); return; }
     if(navigator.canShare && navigator.canShare({files:[zipFile]})){
       try{ await navigator.share({files:[zipFile], title: p.address}); toast('Shared.'); }
       catch(err){
         if(err && err.name==='AbortError') return;
-        toast('Share failed: ' + (err && err.message ? err.message : err) + ' \u2014 try "Download one ZIP file" below.', 8000);
+        toast('Share failed: ' + (err && err.message ? err.message : err) + ' \u2014 use "Download one ZIP file" instead, then upload it in Dropbox yourself.', 8000);
       }
     } else {
       toast('Sharing not available here \u2014 use "Download one ZIP file" below.', 6000);
     }
   };
-  document.getElementById('downloadZipBtn').onclick = async ()=>{
-    toast('Building ZIP\u2026', 3000);
-    const allFiles = getAllFiles();
-    const zipBlob = await buildZip(allFiles);
+  document.getElementById('downloadZipBtn').onclick = ()=>{
+    if(!zipFile){ toast('Still preparing \u2014 give it one more second.', 3000); return; }
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(zipBlob);
-    a.download = sanitize(p.address) + '.zip';
+    a.href = URL.createObjectURL(zipFile);
+    a.download = zipFile.name;
     document.body.appendChild(a); a.click(); a.remove();
-    toast('ZIP downloaded \u2014 open it from Downloads, or move it into Dropbox from there.', 6000);
+    toast('ZIP downloaded \u2014 open the Dropbox app and upload it from Downloads.', 6000);
   };
 
   document.getElementById('shareBtn').onclick = async ()=>{
