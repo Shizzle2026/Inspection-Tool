@@ -591,9 +591,11 @@ function renderSettings(){
       <div class="card">
         <p class="sub">More settings (like the camera lens choice) will land here as they get built.</p>
       </div>
+      <button class="btn" id="checkUpdateBtn" style="width:100%;">Check for updates</button>
     </div>
   `;
   document.getElementById('backHomeFromSettings').onclick = ()=>renderHome();
+  document.getElementById('checkUpdateBtn').onclick = ()=>checkForUpdatesNow();
   app.querySelectorAll('[data-scale]').forEach(btn=>{
     btn.onclick = ()=>{
       uiScale = parseFloat(btn.dataset.scale);
@@ -1624,11 +1626,57 @@ async function renderExport(){
   };
 }
 
+/* ---------- Update detection: catches new versions safely, never touches stored data ---------- */
+let swRegistration = null;
+const hadControllerAtBoot = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
+
+function showUpdateBanner(){
+  if(document.getElementById('updateBanner')) return; // already showing
+  const banner = document.createElement('div');
+  banner.id = 'updateBanner';
+  banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:var(--accent);color:#fff;padding:14px 16px;text-align:center;font-weight:700;font-size:17px;z-index:300;cursor:pointer;';
+  banner.textContent = 'Update ready \u2014 tap to refresh (your data is safe)';
+  banner.onclick = ()=>{ window.location.reload(); };
+  document.body.appendChild(banner);
+}
+
+function watchForUpdates(reg){
+  swRegistration = reg;
+  if(reg.waiting && hadControllerAtBoot) showUpdateBanner();
+  reg.addEventListener('updatefound', ()=>{
+    const nw = reg.installing;
+    if(!nw) return;
+    nw.addEventListener('statechange', ()=>{
+      if(nw.state === 'installed' && reg.waiting && hadControllerAtBoot) showUpdateBanner();
+    });
+  });
+  // Belt-and-suspenders: if the active controller itself ever changes while
+  // this page is open, that's a real update taking over - show the banner
+  // even if the checks above raced past it.
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.addEventListener('controllerchange', ()=>{
+      if(hadControllerAtBoot) showUpdateBanner();
+    });
+  }
+}
+
+async function checkForUpdatesNow(){
+  if(!swRegistration) { toast('Update checking isn\u2019t available right now.', 3000); return; }
+  toast('Checking for updates\u2026', 2500);
+  try{ await swRegistration.update(); }catch(e){}
+}
+
 /* ---------- Boot ---------- */
 (async function boot(){
   document.getElementById('app').style.zoom = uiScale;
   if('serviceWorker' in navigator){
-    navigator.serviceWorker.register('sw.js').catch(()=>{});
+    navigator.serviceWorker.register('sw.js').then(watchForUpdates).catch(()=>{});
+    // Re-check every time the app comes back to the foreground (reopened, switched back to, etc.)
+    document.addEventListener('visibilitychange', ()=>{
+      if(document.visibilityState === 'visible' && swRegistration){
+        swRegistration.update().catch(()=>{});
+      }
+    });
   }
   await loadAll();
   renderHome();
