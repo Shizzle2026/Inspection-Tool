@@ -273,11 +273,11 @@ async function saveCurrent(){ const p = findProp(currentPropId); if(p) await dbP
 async function loadAll(){ properties = await dbGetAll(); properties.sort((a,b)=>a.createdAt-b.createdAt); }
 
 /* ---------- Toast ---------- */
-function toast(msg){
+function toast(msg, ms){
   const t = document.createElement('div');
   t.className='toast'; t.textContent=msg;
   document.body.appendChild(t);
-  setTimeout(()=>t.remove(), 2000);
+  setTimeout(()=>t.remove(), ms || 2000);
 }
 
 /* ---------- Tap a thumbnail to view it full-screen, with delete right there ---------- */
@@ -1426,9 +1426,21 @@ async function renderExport(){
   document.getElementById('shareBtn').onclick = async ()=>{
     const notesFile = new File([buildNotesText(p)], sanitize(p.address)+' - Field Notes.txt', {type:'text/plain'});
     const allFiles = [notesFile, ...collectPhotoFiles(p)];
+    const totalMB = (allFiles.reduce((sum,f)=>sum+f.size,0) / (1024*1024)).toFixed(1);
     if(navigator.canShare && navigator.canShare({files: allFiles})){
-      try{ await navigator.share({files: allFiles, title: p.address}); toast('Shared.'); } catch(err){}
-    } else { toast('Sharing not supported here \u2014 use "Download files instead" below.'); }
+      try{
+        await navigator.share({files: allFiles, title: p.address});
+        toast('Shared.');
+      } catch(err){
+        if(err && err.name === 'AbortError'){
+          // User backed out of the share sheet themselves - not a real error.
+          return;
+        }
+        toast('Share failed (' + allFiles.length + ' files, ' + totalMB + ' MB): ' + (err && err.message ? err.message : err) + ' \u2014 use "Download files instead" below.', 8000);
+      }
+    } else {
+      toast('Too much to share at once (' + allFiles.length + ' files, ' + totalMB + ' MB) \u2014 use "Download files instead" below.', 8000);
+    }
   };
   document.getElementById('downloadBtn').onclick = ()=>{
     const notesFile = new File([buildNotesText(p)], sanitize(p.address)+' - Field Notes.txt', {type:'text/plain'});
