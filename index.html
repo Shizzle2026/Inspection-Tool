@@ -61,7 +61,8 @@
   .levelhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
   .levelhead .label{font-size:21px;}
   .safetyblock{background:var(--bg);border:2px solid var(--warn);border-radius:14px;padding:14px;margin-bottom:14px;}
-  .roomcard{border:2px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px;background:var(--bg);}
+  .roomcard{border:2px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px;background:var(--bg);position:relative;}
+  .roomcard-del{position:absolute;top:10px;right:10px;background:rgba(0,0,0,0.55);color:#fff;border:none;border-radius:50%;width:34px;height:34px;font-size:18px;line-height:1;z-index:5;}
   .roomcard .row{margin-bottom:6px;}
   .mechcard{border:2px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px;background:var(--bg);}
   .footer-actions{background:var(--bg);border-top:2px solid var(--line);padding:16px;display:flex;gap:10px;}
@@ -1299,13 +1300,15 @@ function renderRooms(){
     ` : '';
     return `
     <div class="roomcard ${idx % 2 === 1 ? 'alt' : ''}" data-roomid="${r.id}">
+      <button class="roomcard-del" data-delroom="${r.id}" title="Remove room">&times;</button>
       <div class="row" style="align-items:flex-start;gap:12px;">
-        <div style="flex:7;">
+        <div style="flex:35;">
           <select data-roomselect="${r.id}" class="room-name-select" style="width:100%;font-weight:700;font-size:19px;">${nameOpts}</select>
-          ${showOtherBox ? `<input type="text" data-roomcustom="${r.id}" value="${r.name==='Other'?'':r.name}" placeholder="Type room name" style="margin-top:8px;">` : ''}
-          <button class="btn btn-sm" data-delroom="${r.id}" style="margin-top:8px;">Remove</button>
         </div>
-        <div style="flex:3;">
+        <div style="flex:35;padding-top:6px;">
+          ${showOtherBox ? `<input type="text" data-roomcustom="${r.id}" value="${r.name==='Other'?'':r.name}" placeholder="Type room name" style="width:100%;font-weight:700;font-size:19px;color:#0b5fb0;">` : ''}
+        </div>
+        <div style="flex:30;">
           ${photoTileHTML('room_'+r.id, 'Photo of room', r.roomPhotos)}
         </div>
       </div>
