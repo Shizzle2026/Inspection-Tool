@@ -1627,7 +1627,7 @@ function buildNotesText(p){
   put('Site/exterior notes', p.exterior.notes);
   lines.push('');
 
-  p.levels.forEach(lvl=>{
+  allTabLevels(p).forEach(lvl=>{
     lines.push('## ' + lvl.label);
     lines.push('');
     if(lvl.kind==='mechanical'){
@@ -1686,7 +1686,7 @@ function collectPhotoFiles(p){
     addAll(p.exterior.garage.interiorPhotos, 'Garage - interior');
   }
   if(p.exterior.sprinkler.present) addAll(p.exterior.sprinkler.photos, 'Sprinkler system');
-  p.levels.forEach(lvl=>{
+  allTabLevels(p).forEach(lvl=>{
     if(lvl.kind==='mechanical'){
       lvl.rooms.forEach(item=> addAll(item.photos, lvl.label + ' - ' + (item.label||'Item')));
     } else {
