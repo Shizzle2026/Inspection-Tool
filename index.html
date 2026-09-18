@@ -730,11 +730,44 @@ function renderSettings(){
       <div class="card">
         <p class="sub">More settings (like the camera lens choice) will land here as they get built.</p>
       </div>
-      <button class="btn" id="checkUpdateBtn" style="width:100%;">Check for updates</button>
+      <button class="btn" id="checkUpdateBtn" style="width:100%;margin-bottom:12px;">Check for updates</button>
+      <div class="card">
+        <p class="label">Backup & restore everything</p>
+        <p class="sub">A complete, exact copy of every property, photo, and note on this device \u2014 not just a readable summary. Restoring puts everything back exactly as it was, even after clearing the app's data.</p>
+        <button class="btn btn-accent" id="backupAllBtn" style="width:100%;margin-top:10px;margin-bottom:10px;">Download full backup</button>
+        <label class="btn" style="width:100%;display:block;text-align:center;cursor:pointer;">Restore from a backup file
+          <input type="file" accept="application/json" id="restoreInput" style="display:none;">
+        </label>
+      </div>
     </div>
   `;
   document.getElementById('backHomeFromSettings').onclick = ()=>renderHome();
   document.getElementById('checkUpdateBtn').onclick = ()=>checkForUpdatesNow();
+  document.getElementById('backupAllBtn').onclick = async ()=>{
+    const all = await dbGetAll();
+    const blob = new Blob([JSON.stringify({ backupVersion: 1, exportedAt: Date.now(), properties: all }, null, 2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'field-tool-backup-' + new Date().toISOString().slice(0,10) + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    toast('Full backup downloaded.', 4000);
+  };
+  document.getElementById('restoreInput').onchange = async (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    try{
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const list = Array.isArray(parsed) ? parsed : parsed.properties;
+      if(!Array.isArray(list)) throw new Error('This file doesn\u2019t look like a field tool backup.');
+      for(const p of list){ await dbPut(p); }
+      await loadAll();
+      toast('Restored ' + list.length + ' property(ies).', 4000);
+      renderHome();
+    }catch(err){
+      toast('Could not restore that file: ' + err.message, 6000);
+    }
+  };
   app.querySelectorAll('[data-scale]').forEach(btn=>{
     btn.onclick = ()=>{
       uiScale = parseFloat(btn.dataset.scale);

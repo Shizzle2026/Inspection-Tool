@@ -1,6 +1,6 @@
 // Caches the app shell so it keeps working even if something (like an
 // accidental pull-to-refresh) forces a reload while completely offline.
-const CACHE_NAME = 'field-tool-2026-09-13-2245';
+const CACHE_NAME = 'field-tool-v1.00002';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => {
