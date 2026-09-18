@@ -23,8 +23,8 @@
   .topbar h1{font-size:20px;margin:0;font-weight:700;}
   .propheader-top{padding:16px 16px 12px;border-bottom:2px solid var(--line);background:var(--bg);}
   .propheader-top .row{align-items:flex-start;}
-  .tabbar{position:sticky;top:0;z-index:20;background:var(--bg);display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;border-top:2px solid var(--line);border-bottom:2px solid var(--line);}
-  .tabbtn{font-size:15px;font-weight:700;padding:10px 14px;border-radius:10px;border:2px solid var(--line);background:var(--bg2);color:var(--text);min-height:44px;}
+  .tabbar{position:sticky;top:0;z-index:20;background:var(--bg);display:flex;flex-wrap:wrap;gap:calc(8px * var(--tab-scale, 1));padding:calc(10px * var(--tab-scale, 1)) 12px;border-top:2px solid var(--line);border-bottom:2px solid var(--line);}
+  .tabbtn{font-size:calc(15px * var(--tab-scale, 1));font-weight:700;padding:calc(10px * var(--tab-scale, 1)) calc(14px * var(--tab-scale, 1));border-radius:10px;border:2px solid var(--line);background:var(--bg2);color:var(--text);min-height:calc(44px * var(--tab-scale, 1));}
   .tabbtn.active{background:var(--accent);border-color:var(--accent);color:#fff;}
   .tabbtn.addtab{background:var(--accent-bg);border-color:var(--accent);color:var(--accent);}
   .roomcard.alt{background:var(--bg2);}
@@ -121,6 +121,7 @@ const PHOTO_SIZE_PRESETS = {
   Large:  { maxDim: 2200, quality: 0.85 }
 };
 let photoSizeSetting = localStorage.getItem('fieldTool.photoSize') || 'Medium';
+let tabBarScale = parseFloat(localStorage.getItem('fieldTool.tabBarScale')) || 1;
 
 const EXTERIOR_TILES_FRONT = [
   ['front','Front'],
@@ -224,7 +225,7 @@ function mkLevel(label){
                  mkMechItem('Water heater'), mkMechItem(''), mkMechItem('')];
   } else {
     lvl.safety = { smoke:{present:null, photos:[]}, co:{present:null, photos:[]}, combo:{present:null, photos:[]} };
-    if(label==='L1' || label==='L2'){
+    if(label==='L1'){
       lvl.rooms = [mkRoom('Living room'), mkRoom('Dining room'), mkRoom('Kitchen')];
     }
   }
@@ -255,14 +256,20 @@ function orderedRoomLevels(p){
     return (ka[0]-kb[0]) || (ka[1]-kb[1]);
   });
 }
-function nextBedroomNumber(p){
-  // One running count across the whole property, in fixed level order -
-  // not tied to which order you actually visited levels in the field.
-  let count = 0;
+function renumberAllBedrooms(p){
+  // Fully re-sequences every bedroom, every time, based on FIXED level order
+  // (L1, L2..., then B1, B2..., then anything else) - not creation order. So
+  // it doesn't matter which order you actually added them in the field; L1's
+  // bedrooms are always numbered before B1's, period.
+  let n = 1;
   orderedRoomLevels(p).forEach(lvl=>{
-    lvl.rooms.forEach(r=>{ if(/^Bedroom(\s+\d+)?$/i.test(r.name||'')) count++; });
+    lvl.rooms.forEach(r=>{
+      if(/^Bedroom(\s+\d+)?$/i.test(r.name||'')){
+        r.name = 'Bedroom ' + n;
+        n++;
+      }
+    });
   });
-  return count+1;
 }
 function uniqueNameForLevel(level, pickedName, currentRoomId){
   // Guarantees no two rooms on the same level ever end up with the exact same
@@ -710,6 +717,8 @@ function renderSettings(){
   const app = document.getElementById('app');
   const scales = [['0.85','Small'],['1','Default'],['1.15','Large'],['1.3','Extra large']];
   const chips = scales.map(([v,label])=>`<button class="chip ${uiScale===parseFloat(v)?'selected':''}" data-scale="${v}">${label}</button>`).join('');
+  const tabScales = [['1','Default'],['1.3','Large'],['1.6','Extra large'],['2','Huge']];
+  const tabChips = tabScales.map(([v,label])=>`<button class="chip ${tabBarScale===parseFloat(v)?'selected':''}" data-tabscale="${v}">${label}</button>`).join('');
   const photoChips = Object.keys(PHOTO_SIZE_PRESETS).map(v=>`<button class="chip ${photoSizeSetting===v?'selected':''}" data-photosize="${v}">${v}</button>`).join('');
   app.innerHTML = `
     <div class="topbar">
@@ -721,6 +730,11 @@ function renderSettings(){
         <p class="label">Text & button size</p>
         <p class="sub">Applies everywhere in the tool, right away &mdash; no need to ask for a code change</p>
         <div class="chiprow">${chips}</div>
+      </div>
+      <div class="card">
+        <p class="label">Toolbar (tab bar) size</p>
+        <p class="sub">Just the Exterior/L1/L2/Notes bar at the top &mdash; independent of the size setting above, so you can make the tabs easier to tap without resizing everything else.</p>
+        <div class="chiprow">${tabChips}</div>
       </div>
       <div class="card">
         <p class="label">Photo size</p>
@@ -773,6 +787,14 @@ function renderSettings(){
       uiScale = parseFloat(btn.dataset.scale);
       localStorage.setItem('fieldTool.uiScale', uiScale);
       document.getElementById('app').style.zoom = uiScale;
+      renderSettings();
+    };
+  });
+  app.querySelectorAll('[data-tabscale]').forEach(btn=>{
+    btn.onclick = ()=>{
+      tabBarScale = parseFloat(btn.dataset.tabscale);
+      localStorage.setItem('fieldTool.tabBarScale', tabBarScale);
+      document.documentElement.style.setProperty('--tab-scale', tabBarScale);
       renderSettings();
     };
   });
@@ -1411,6 +1433,7 @@ function renderRooms(){
     btn.onclick = ()=>{
       askConfirm('Remove this level?', 'Everything inside it goes too.', ()=>{
         p.levels = p.levels.filter(l=>l.id!==btn.dataset.dellevel);
+        renumberAllBedrooms(p);
         saveCurrent();
         if(currentTab === btn.dataset.dellevel) currentTab = 'exterior';
         renderCurrentTab();
@@ -1425,6 +1448,7 @@ function renderRooms(){
     btn.onclick = ()=>{
       askConfirm('Remove this room?', '', ()=>{
         p.levels.forEach(lvl=>{ if(lvl.kind==='rooms') lvl.rooms = lvl.rooms.filter(r=>r.id!==btn.dataset.delroom); });
+        renumberAllBedrooms(p);
         saveCurrent(); renderRooms();
       });
     };
@@ -1435,7 +1459,8 @@ function renderRooms(){
       const lvl = p.levels.find(l=> l.kind==='rooms' && l.rooms.some(x=>x.id===r.id));
       let picked = sel.value;
       if(picked === 'Bedroom'){
-        r.name = 'Bedroom ' + nextBedroomNumber(p);
+        r.name = 'Bedroom';
+        renumberAllBedrooms(p);
       } else if(picked === 'Other'){
         r.name = 'Other';
       } else {
@@ -1900,6 +1925,7 @@ async function checkForUpdatesNow(){
 /* ---------- Boot ---------- */
 (async function boot(){
   document.getElementById('app').style.zoom = uiScale;
+  document.documentElement.style.setProperty('--tab-scale', tabBarScale);
   if('serviceWorker' in navigator){
     navigator.serviceWorker.register('sw.js').then(watchForUpdates).catch(()=>{});
     // Re-check every time the app comes back to the foreground (reopened, switched back to, etc.)
