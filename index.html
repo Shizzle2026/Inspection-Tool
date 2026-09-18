@@ -261,10 +261,16 @@ function renumberAllBedrooms(p){
   // (L1, L2..., then B1, B2..., then anything else) - not creation order. So
   // it doesn't matter which order you actually added them in the field; L1's
   // bedrooms are always numbered before B1's, period.
+  // Primary bedroom gets its own number too now (e.g. "Primary bedroom 3"),
+  // so the sequence never skips a number - a visible gap reads like a
+  // missing bedroom even when the total count is actually correct.
   let n = 1;
   orderedRoomLevels(p).forEach(lvl=>{
     lvl.rooms.forEach(r=>{
-      if(/^Bedroom(\s+\d+)?$/i.test(r.name||'')){
+      if(/^Primary bedroom(\s+\d+)?$/i.test(r.name||'')){
+        r.name = 'Primary bedroom ' + n;
+        n++;
+      } else if(/^Bedroom(\s+\d+)?$/i.test(r.name||'')){
         r.name = 'Bedroom ' + n;
         n++;
       }
@@ -1453,7 +1459,12 @@ function renderRooms(){
   });
 
   app.querySelectorAll('[data-addroom]').forEach(btn=>{
-    btn.onclick = ()=>{ findLevel(p,btn.dataset.addroom).rooms.push(mkRoom('')); saveCurrent(); renderRooms(); };
+    btn.onclick = ()=>{
+      const newRoom = mkRoom('');
+      findLevel(p,btn.dataset.addroom).rooms.push(newRoom);
+      saveCurrent(); renderRooms();
+      document.querySelector(`[data-roomid="${newRoom.id}"]`)?.scrollIntoView({behavior:'smooth', block:'start'});
+    };
   });
   app.querySelectorAll('[data-delroom]').forEach(btn=>{
     btn.onclick = ()=>{
@@ -1471,12 +1482,14 @@ function renderRooms(){
       let picked = sel.value;
       if(picked === 'Bedroom'){
         r.name = 'Bedroom';
-        renumberAllBedrooms(p);
+      } else if(picked === 'Primary bedroom'){
+        r.name = uniqueNameForLevel(lvl, 'Primary bedroom', r.id);
       } else if(picked === 'Other'){
         r.name = 'Other';
       } else {
         r.name = uniqueNameForLevel(lvl, picked, r.id);
       }
+      renumberAllBedrooms(p);
       saveCurrent(); renderRooms();
     };
   });
@@ -1528,7 +1541,12 @@ function renderRooms(){
   });
 
   app.querySelectorAll('[data-addmech]').forEach(btn=>{
-    btn.onclick = ()=>{ findLevel(p,btn.dataset.addmech).rooms.push(mkMechItem('')); saveCurrent(); renderRooms(); };
+    btn.onclick = ()=>{
+      const newItem = mkMechItem('');
+      findLevel(p,btn.dataset.addmech).rooms.push(newItem);
+      saveCurrent(); renderRooms();
+      document.querySelector(`[data-mechid="${newItem.id}"]`)?.scrollIntoView({behavior:'smooth', block:'start'});
+    };
   });
   app.querySelectorAll('[data-delmech]').forEach(btn=>{
     btn.onclick = ()=>{
