@@ -21,6 +21,15 @@
   .backbtn{display:block;width:100%;font-size:19px;font-weight:700;padding:14px 18px;border-radius:12px;border:2px solid var(--accent);background:var(--accent-bg);color:var(--accent);min-height:54px;margin-bottom:12px;}
   .addr-line{font-size:16px;font-weight:600;color:var(--sub);margin:0 0 2px;}
   .topbar h1{font-size:20px;margin:0;font-weight:700;}
+  .propheader{border-bottom:2px solid var(--line);background:var(--bg);}
+  .propheader-top{padding:16px 16px 12px;}
+  .propheader-top .row{align-items:flex-start;}
+  .tabbar{position:sticky;top:0;z-index:20;background:var(--bg);display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;border-top:2px solid var(--line);border-bottom:2px solid var(--line);}
+  .tabbtn{font-size:15px;font-weight:700;padding:10px 14px;border-radius:10px;border:2px solid var(--line);background:var(--bg2);color:var(--text);min-height:44px;}
+  .tabbtn.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .tabbtn.addtab{background:var(--accent-bg);border-color:var(--accent);color:var(--accent);}
+  .roomcard.alt{background:var(--bg2);}
+  .room-name-select{color:#0b5fb0 !important;}
   .btn{font-size:18px;font-weight:600;border-radius:12px;border:2px solid var(--line);background:var(--bg);color:var(--text);padding:14px 18px;min-height:52px;}
   .btn:active{background:var(--bg2);}
   .btn-accent{background:var(--accent);border-color:var(--accent);color:#fff;}
@@ -105,7 +114,7 @@ async function dbDelete(id){
 /* ---------- App state ---------- */
 let properties = [];
 let currentPropId = null;
-let currentSection = null;
+let currentTab = 'exterior';
 let uiScale = parseFloat(localStorage.getItem('fieldTool.uiScale')) || 1;
 const PHOTO_SIZE_PRESETS = {
   Small:  { maxDim: 1000, quality: 0.6 },
@@ -120,8 +129,8 @@ const EXTERIOR_TILES_FRONT = [
   ['frontSide2','Front and side 2'],
 ];
 const EXTERIOR_TILES_STREET = [
-  ['streetScene1','Street scene'],
-  ['streetScene2','Street scene'],
+  ['streetScene1','Street scene 1'],
+  ['streetScene2','Street scene 2'],
 ];
 const EXTERIOR_TILES_REAR = [
   ['rear','Rear'],
@@ -208,13 +217,13 @@ function mkMechItem(label){
   return { id:'m_'+Date.now()+'_'+Math.random().toString(36).slice(2,6), label:label||'', photos:[], strapped:null, fuelType:null };
 }
 function mkLevel(label){
-  const isMech = (label==='Mechanical area');
+  const isMech = (label==='M1');
   const lvl = { id:'l_'+Date.now()+'_'+Math.random().toString(36).slice(2,6), label:label, kind: isMech?'mechanical':'rooms', rooms:[] };
   if(isMech){
     lvl.rooms = [mkMechItem('Electrical panel'), mkMechItem('Furnace'), mkMechItem('Air conditioner'),
                  mkMechItem('Water heater'), mkMechItem(''), mkMechItem('')];
   } else {
-    lvl.safety = { smoke:{present:null, photos:[]}, co:{present:null, photos:[]} };
+    lvl.safety = { smoke:{present:null, photos:[]}, co:{present:null, photos:[]}, combo:{present:null, photos:[]} };
     if(label==='L1' || label==='L2'){
       lvl.rooms = [mkRoom('Living room'), mkRoom('Dining room'), mkRoom('Kitchen')];
     }
@@ -227,6 +236,60 @@ function findLevel(p, levelId){ return p.levels.find(l=>l.id===levelId); }
 function findRoomAnyLevel(p, roomId){
   for(const lvl of p.levels){ const r=(lvl.rooms||[]).find(x=>x.id===roomId); if(r) return r; }
   return null;
+}
+function levelSortKey(label){
+  // Fixed order regardless of which order levels were actually added in:
+  // L-levels first (L1, L2, L3...), then B-levels (B1, B2...), then anything else.
+  const m = /^([A-Za-z]+)(\d+)$/.exec(label||'');
+  if(m){
+    const prefix = m[1].toUpperCase();
+    const num = parseInt(m[2],10);
+    const prefixRank = prefix==='L' ? 0 : (prefix==='B' ? 1 : 2);
+    return [prefixRank, num];
+  }
+  return [3, 0];
+}
+function orderedRoomLevels(p){
+  return p.levels.filter(l=>l.kind==='rooms').slice().sort((a,b)=>{
+    const ka=levelSortKey(a.label), kb=levelSortKey(b.label);
+    return (ka[0]-kb[0]) || (ka[1]-kb[1]);
+  });
+}
+function nextBedroomNumber(p){
+  // One running count across the whole property, in fixed level order -
+  // not tied to which order you actually visited levels in the field.
+  let count = 0;
+  orderedRoomLevels(p).forEach(lvl=>{
+    lvl.rooms.forEach(r=>{ if(/^Bedroom(\s+\d+)?$/i.test(r.name||'')) count++; });
+  });
+  return count+1;
+}
+function uniqueNameForLevel(level, pickedName, currentRoomId){
+  // Guarantees no two rooms on the same level ever end up with the exact same
+  // name - which is what was silently overwriting photos in the ZIP before.
+  const existing = level.rooms.filter(r=>r.id!==currentRoomId).map(r=>r.name);
+  if(!existing.includes(pickedName)) return pickedName;
+  let n=2;
+  while(existing.includes(pickedName+' '+n)) n++;
+  return pickedName+' '+n;
+}
+function roomNameCategory(name){
+  // Maps a stored name like "Bedroom 2" or "Bathroom 2" back to its base
+  // dropdown option ("Bedroom", "Bathroom"), so the <select> shows the right
+  // thing even though the actual stored name has a number appended.
+  for(const opt of ROOM_NAME_OPTIONS.slice(0,-1)){
+    if(name === opt) return opt;
+    const esc = opt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if(new RegExp('^'+esc+'\\s+\\d+$','i').test(name||'')) return opt;
+  }
+  return 'Other';
+}
+function uniqueMechLabel(level, pickedLabel, currentItemId){
+  const existing = level.rooms.filter(m=>m.id!==currentItemId).map(m=>m.label);
+  if(!pickedLabel || !existing.includes(pickedLabel)) return pickedLabel;
+  let n=2;
+  while(existing.includes(pickedLabel+' '+n)) n++;
+  return pickedLabel+' '+n;
 }
 
 function countExteriorDone(p){
@@ -274,9 +337,80 @@ function dataURLtoBlob(dataURL){
 }
 function sanitize(s){ return (s||'').replace(/[\\/:*?"<>|]/g,'-').trim(); }
 
+const ADDRESS_DIRECTION_ABBR = {
+  north:'N', south:'S', east:'E', west:'W',
+  northeast:'NE', northwest:'NW', southeast:'SE', southwest:'SW'
+};
+const ADDRESS_SUFFIX_ABBR = {
+  avenue:'Ave', boulevard:'Blvd', street:'St', drive:'Dr', road:'Rd', lane:'Ln',
+  court:'Ct', circle:'Cir', place:'Pl', terrace:'Ter', parkway:'Pkwy', highway:'Hwy',
+  trail:'Trl', crossing:'Xing', square:'Sq', point:'Pt', ridge:'Rdg', crescent:'Cres',
+  loop:'Loop', way:'Way', run:'Run', bend:'Bend', cove:'Cv', pass:'Pass', alley:'Aly',
+  path:'Path', pike:'Pike', walk:'Walk'
+};
+function shortenAddressForFilename(address){
+  // Trims to just the street-address portion (drops city/state/zip after the
+  // first comma) and abbreviates directions and street suffixes, so filenames
+  // stay short and easy to work with - e.g. "2328 West Euclid Avenue, Spokane,
+  // WA 99205" -> "2328 W Euclid Ave"
+  if(!address) return address;
+  const streetPart = address.split(',')[0].trim();
+  const words = streetPart.split(/\s+/);
+  const out = words.map((w, i)=>{
+    const bare = w.replace(/[.,]/g,'');
+    const lower = bare.toLowerCase();
+    if(ADDRESS_DIRECTION_ABBR[lower]) return ADDRESS_DIRECTION_ABBR[lower];
+    if(i === words.length-1 && ADDRESS_SUFFIX_ABBR[lower]) return ADDRESS_SUFFIX_ABBR[lower];
+    return w;
+  });
+  return out.join(' ');
+}
+
 /* ---------- Save/load ---------- */
 async function saveCurrent(){ const p = findProp(currentPropId); if(p) await dbPut(p); }
-async function loadAll(){ properties = await dbGetAll(); properties.sort((a,b)=>a.createdAt-b.createdAt); }
+function migratePropertyPhotos(p){
+  // Old data stored photos as plain strings; new data stores {src, takenAt}.
+  // This brings old properties up to the new shape without losing anything -
+  // old photos just won't have a real "taken at" time (they'll fall back to
+  // the export date, since we never captured one for them originally).
+  let changed = false;
+  const fix = (arr)=>{
+    if(!Array.isArray(arr)) return;
+    for(let i=0;i<arr.length;i++){
+      if(typeof arr[i] === 'string'){ arr[i] = { src: arr[i], takenAt: null }; changed = true; }
+    }
+  };
+  if(p.exterior){
+    Object.keys(p.exterior.photos||{}).forEach(k=>fix(p.exterior.photos[k]));
+    fix(p.exterior.outbuildingPhotos);
+    if(p.exterior.fence){ fix(p.exterior.fence.front && p.exterior.fence.front.photos); fix(p.exterior.fence.rear && p.exterior.fence.rear.photos); }
+    if(p.exterior.features){ Object.keys(p.exterior.features).forEach(k=>fix(p.exterior.features[k].photos)); }
+    if(p.exterior.driveway) fix(p.exterior.driveway.photos);
+    if(p.exterior.garage){ fix(p.exterior.garage.exteriorPhotos); fix(p.exterior.garage.interiorPhotos); }
+    if(p.exterior.sprinkler) fix(p.exterior.sprinkler.photos);
+  }
+  (p.levels||[]).forEach(lvl=>{
+    if(lvl.kind==='mechanical'){
+      (lvl.rooms||[]).forEach(item=>fix(item.photos));
+    } else {
+      if(lvl.safety){
+        if(!lvl.safety.combo){ lvl.safety.combo = {present:null, photos:[]}; changed = true; }
+        fix(lvl.safety.smoke && lvl.safety.smoke.photos);
+        fix(lvl.safety.co && lvl.safety.co.photos);
+        fix(lvl.safety.combo && lvl.safety.combo.photos);
+      }
+      (lvl.rooms||[]).forEach(r=>{ fix(r.roomPhotos); fix(r.flooringPhotos); });
+    }
+  });
+  return changed;
+}
+async function loadAll(){
+  properties = await dbGetAll();
+  properties.sort((a,b)=>a.createdAt-b.createdAt);
+  for(const p of properties){
+    if(migratePropertyPhotos(p)) await dbPut(p);
+  }
+}
 
 /* ---------- Toast ---------- */
 function toast(msg, ms){
@@ -436,9 +570,14 @@ function askPropertyDetails(existing, onOk){
         const res = await fetch('https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&countrycodes=us&viewbox=-124.85,49.05,-116.9,45.5&bounded=0&q='+encodeURIComponent(q));
         const data = await res.json();
         const formatted = data.map(d=>formatShortAddress(d.address||{}));
-        sugBox.innerHTML = data.map((d,i)=>`<button type="button" class="btn btn-sm" data-sugidx="${i}" style="text-align:left;">${formatted[i] || d.display_name}</button>`).join('');
+        // Only ever show/use the cleanly-formatted version - never fall back to
+        // Nominatim's raw display_name, which can include neighborhood/county/
+        // country junk. If a result can't be cleanly formatted, skip it rather
+        // than show something messy.
+        const validIdx = data.map((d,i)=>i).filter(i=>formatted[i]);
+        sugBox.innerHTML = validIdx.map(i=>`<button type="button" class="btn btn-sm" data-sugidx="${i}" style="text-align:left;">${formatted[i]}</button>`).join('');
         sugBox.querySelectorAll('[data-sugidx]').forEach(b=>{
-          b.onclick = ()=>{ addrInput.value = formatted[parseInt(b.dataset.sugidx,10)] || data[parseInt(b.dataset.sugidx,10)].display_name; sugBox.innerHTML=''; };
+          b.onclick = ()=>{ addrInput.value = formatted[parseInt(b.dataset.sugidx,10)]; sugBox.innerHTML=''; };
         });
       }catch(e){ /* offline or blocked - plain typing still works, fail silently */ }
     }, 450);
@@ -537,7 +676,7 @@ function renderHome(){
   document.getElementById('viewArchived').onclick = ()=>{ homeView='archived'; renderHome(); };
   document.getElementById('settingsBtn').onclick = ()=>renderSettings();
   app.querySelectorAll('[data-open]').forEach(btn=>{
-    btn.onclick = ()=>{ currentPropId = btn.dataset.open; currentSection=null; renderPropertyHome(); };
+    btn.onclick = ()=>{ currentPropId = btn.dataset.open; renderPropertyHome(); };
   });
   app.querySelectorAll('[data-quicksync]').forEach(btn=>{
     btn.onclick = ()=>{ currentPropId = btn.dataset.quicksync; renderExport(); };
@@ -613,37 +752,45 @@ function renderSettings(){
   });
 }
 
-/* ---------- Render: Property home ---------- */
-function renderPropertyHome(){
-  const p = findProp(currentPropId);
-  const app = document.getElementById('app');
+/* ---------- Shared property chrome: header + persistent tab bar ---------- */
+function allTabLevels(p){
+  return [...orderedRoomLevels(p), ...p.levels.filter(l=>l.kind==='mechanical')];
+}
+function tabList(p){
+  return [
+    {id:'exterior', label:'Exterior'},
+    ...allTabLevels(p).map(l=>({id:l.id, label:l.label})),
+    {id:'notes', label:'Notes'}
+  ];
+}
+function propertyChromeHTML(p){
   const metaBits = [];
   if(p.appointment) metaBits.push(formatAppt(p.appointment));
   if(p.occupancy) metaBits.push(p.occupancy);
   if(p.fileNumber) metaBits.push('File #' + p.fileNumber);
-  app.innerHTML = `
-    <div class="topbar">
-      <button class="backbtn" id="backHome">&larr; Back to all properties</button>
-      <div class="row" style="align-items:flex-start;">
-        <div>
-          <h1>${p.address}</h1>
-          ${metaBits.length ? `<p class="sub" style="margin-top:4px;">${metaBits.join(' \u2022 ')}</p>` : ''}
+  const tabsHtml = tabList(p).map(t=>`<button class="tabbtn ${currentTab===t.id?'active':''}" data-gotab="${t.id}">${t.label}</button>`).join('')
+    + `<button class="tabbtn addtab" id="addLevelTabBtn">+ Level</button>`;
+  return `
+    <div class="propheader">
+      <div class="propheader-top">
+        <button class="backbtn" id="backAllProps" style="margin-bottom:10px;">&larr; Back to all properties</button>
+        <div class="row" style="align-items:flex-start;">
+          <div>
+            <p class="addr-line" style="margin:0;">${p.address}</p>
+            ${metaBits.length ? `<p class="sub" style="margin-top:2px;">${metaBits.join(' \u2022 ')}</p>` : ''}
+          </div>
+          <div style="display:flex;gap:8px;flex-shrink:0;">
+            <button class="btn btn-sm" id="editDetailsBtn">Edit</button>
+            <button class="btn btn-sm" id="exportBtnHeader">Export</button>
+          </div>
         </div>
-        <button class="btn btn-sm" id="editDetailsBtn">Edit details</button>
       </div>
-    </div>
-    <div class="content">
-      <div class="section-list">
-        <button class="navrow" data-sec="exterior"><span>Exterior</span><span class="count">${countExteriorDone(p)}</span></button>
-        <button class="navrow" data-sec="interior"><span>Interior</span><span class="count">${countRoomsLabel(p)}</span></button>
-        <button class="navrow" data-sec="notes"><span>General notes</span><span class="count">${p.generalNotes ? 'added' : 'empty'}</span></button>
-      </div>
-    </div>
-    <div class="footer-actions">
-      <button class="btn" id="exportBtn">Export / Share</button>
+      <div class="tabbar">${tabsHtml}</div>
     </div>
   `;
-  document.getElementById('backHome').onclick = ()=>{ currentPropId=null; renderHome(); };
+}
+function wirePropertyChrome(app, p){
+  document.getElementById('backAllProps').onclick = ()=>{ currentPropId=null; renderHome(); };
   document.getElementById('editDetailsBtn').onclick = ()=>{
     askPropertyDetails(p, (data)=>{
       p.address = data.address || p.address;
@@ -652,21 +799,64 @@ function renderPropertyHome(){
       p.occupancy = data.occupancy;
       p.fileNumber = data.fileNumber;
       saveCurrent();
-      renderPropertyHome();
+      renderCurrentTab();
     });
   };
-  app.querySelectorAll('[data-sec]').forEach(btn=>{
-    btn.onclick = ()=>{ currentSection=btn.dataset.sec; renderSection(); };
+  document.getElementById('exportBtnHeader').onclick = renderExport;
+  app.querySelectorAll('[data-gotab]').forEach(btn=>{
+    btn.onclick = ()=>{ currentTab = btn.dataset.gotab; renderCurrentTab(); };
   });
-  document.getElementById('exportBtn').onclick = renderExport;
+  document.getElementById('addLevelTabBtn').onclick = ()=>{
+    const overlay = showModal(`
+      <p class="label">Add a level</p>
+      <div class="chiprow">
+        <button class="btn" data-quickaddlevel="L1">+ L1</button>
+        <button class="btn" data-quickaddlevel="L2">+ L2</button>
+        <button class="btn" data-quickaddlevel="L3">+ L3</button>
+        <button class="btn" data-quickaddlevel="B1">+ B1</button>
+        <button class="btn" data-quickaddlevel="B2">+ B2</button>
+        <button class="btn" data-quickaddlevel="M1">+ M1 (mechanical)</button>
+        <button class="btn" data-quickaddlevel="custom">+ Custom</button>
+      </div>
+      <div class="row" style="margin-top:14px;"><button class="btn" id="modalCancel" style="flex:1;">Cancel</button></div>
+    `);
+    overlay.querySelector('#modalCancel').onclick = ()=>overlay.remove();
+    overlay.querySelectorAll('[data-quickaddlevel]').forEach(b=>{
+      b.onclick = ()=>{
+        let label = b.dataset.quickaddlevel;
+        if(label==='custom'){
+          overlay.remove();
+          askText('Level label', 'e.g. L3, Attic', (custom)=>{
+            if(!custom || !custom.trim()) return;
+            const lvl = mkLevel(custom.trim());
+            p.levels.push(lvl);
+            saveCurrent();
+            currentTab = lvl.id;
+            renderCurrentTab();
+          });
+          return;
+        }
+        const lvl = mkLevel(label);
+        p.levels.push(lvl);
+        saveCurrent();
+        overlay.remove();
+        currentTab = lvl.id;
+        renderCurrentTab();
+      };
+    });
+  };
+}
+function renderCurrentTab(){
+  if(currentTab==='exterior') return renderExterior();
+  if(currentTab==='notes') return renderNotes();
+  return renderRooms();
 }
 
-function renderSection(){
-  if(currentSection==='exterior') return renderExterior();
-  if(currentSection==='interior') return renderRooms();
-  if(currentSection==='notes') return renderNotes();
+/* ---------- Render: Property home ---------- */
+function renderPropertyHome(){
+  currentTab = 'exterior';
+  renderExterior();
 }
-
 /* ---------- Photo tile helper ---------- */
 function photoTileHTML(key, label, photos){
   const thumbs = (photos||[]).map((ph,i)=>`
@@ -863,11 +1053,7 @@ function renderExterior(){
   const heightChips = heightOptions.map(v=>`<button class="chip ${p.exterior.entranceHeight===v?'selected':''}" data-height="${v}">${v}</button>`).join('');
 
   app.innerHTML = `
-    <div class="topbar">
-      <button class="backbtn" id="backProp">&larr; Back to property</button>
-      <p class="addr-line">${p.address}</p>
-      <h1>Exterior</h1>
-    </div>
+    ${propertyChromeHTML(p)}
     <div class="content">
       ${tilesFront}
       ${drivewayCardHTML(p.exterior.driveway)}
@@ -900,10 +1086,8 @@ function renderExterior(){
         <textarea id="extNotes" placeholder="Anything else worth flagging...">${p.exterior.notes||''}</textarea>
       </div>
     </div>
-    <div class="footer-actions"><button class="btn" id="backHomeBtn">Done</button></div>
   `;
-  document.getElementById('backProp').onclick = ()=>renderPropertyHome();
-  document.getElementById('backHomeBtn').onclick = ()=>renderPropertyHome();
+  wirePropertyChrome(app, p);
   EXTERIOR_TILES.forEach(([k])=> wirePhotoTile(app, k, ()=>(p.exterior.photos[k]=p.exterior.photos[k]||[]), renderExterior));
   wirePhotoTile(app, 'outbuilding', ()=>p.exterior.outbuildingPhotos, renderExterior);
   wirePhotoTile(app, 'fence_front', ()=>p.exterior.fence.front.photos, renderExterior);
@@ -1021,20 +1205,23 @@ function renderRooms(){
   const safetyDetectorRow = (lvl, key, label)=>{
     const det = lvl.safety[key];
     return `
-      <div class="row" style="margin-top:8px;">
-        <p class="label" style="font-size:17px;">${label}</p>
-        <div class="chiprow" style="margin-top:0;">
-          <button class="chip ${det.present===true?'selected':''}" data-det="${lvl.id}|${key}" data-val="yes">Yes</button>
-          <button class="chip ${det.present===false?'selected':''}" data-det="${lvl.id}|${key}" data-val="no">No</button>
+      <div class="row" style="align-items:flex-start;margin-top:10px;">
+        <div style="flex:1;">
+          <p class="label" style="font-size:17px;margin:0;">${label}</p>
+          <div class="chiprow">
+            <button class="chip ${det.present===true?'selected':''}" data-det="${lvl.id}|${key}" data-val="yes">Yes</button>
+            <button class="chip ${det.present===false?'selected':''}" data-det="${lvl.id}|${key}" data-val="no">No</button>
+          </div>
         </div>
+        <div style="flex:1;">${photoTileHTML('det_'+lvl.id+'_'+key, label+' photo', det.photos)}</div>
       </div>
-      ${photoTileHTML('det_'+lvl.id+'_'+key, label+' photo', det.photos)}
     `;
   };
 
-  const roomCardHTML = (r)=>{
-    const showOtherBox = !ROOM_NAME_OPTIONS.slice(0,-1).includes(r.name);
-    const nameOpts = ROOM_NAME_OPTIONS.map(n=>`<option value="${n}" ${n===r.name?'selected':''}>${n}</option>`).join('');
+  const roomCardHTML = (r, idx)=>{
+    const roomCategory = roomNameCategory(r.name);
+    const showOtherBox = (roomCategory === 'Other') || (r.name !== roomCategory);
+    const nameOpts = ROOM_NAME_OPTIONS.map(n=>`<option value="${n}" ${n===roomCategory?'selected':''}>${n}</option>`).join('');
     const ceilChips = CEILING_HEIGHT_OPTIONS.map(v=>`<button class="chip ${r.ceilingHeight===v?'selected':''}" data-ceil="${r.id}" data-ceilval="${v}">${v}</button>`).join('');
     const styleChips = CEILING_STYLE_OPTIONS.map(v=>`<button class="chip ${r.ceilingStyle===v?'selected':''}" data-style="${r.id}" data-styleval="${v}">${v}</button>`).join('');
     const condChips = CONDITION_OPTIONS.map(v=>`<button class="chip ${r.condition===v?'selected':''}" data-cond="${r.id}" data-condval="${v}">${v}</button>`).join('');
@@ -1053,10 +1240,10 @@ function renderRooms(){
       ` : ''}
     ` : '';
     return `
-    <div class="roomcard" data-roomid="${r.id}">
+    <div class="roomcard ${idx % 2 === 1 ? 'alt' : ''}" data-roomid="${r.id}">
       <div class="row" style="align-items:flex-start;gap:12px;">
         <div style="flex:1;">
-          <select data-roomselect="${r.id}" style="width:100%;font-weight:700;font-size:19px;">${nameOpts}</select>
+          <select data-roomselect="${r.id}" class="room-name-select" style="width:100%;font-weight:700;font-size:19px;">${nameOpts}</select>
           ${showOtherBox ? `<input type="text" data-roomcustom="${r.id}" value="${r.name==='Other'?'':r.name}" placeholder="Type room name" style="margin-top:8px;">` : ''}
           <button class="btn btn-sm" data-delroom="${r.id}" style="margin-top:8px;">Remove</button>
         </div>
@@ -1120,90 +1307,83 @@ function renderRooms(){
     </div>`;
   };
 
-  const levelsHTML = p.levels.map(lvl=>{
-    if(lvl.kind==='mechanical'){
-      return `
-      <div class="levelcard" data-levelid="${lvl.id}">
+  const activeLevel = p.levels.find(l=>l.id===currentTab);
+
+  const levelHTML = !activeLevel ? `
+    <div class="card">
+      <p class="label">No level selected</p>
+      <p class="sub">Tap "+ Level" up in the tab bar to add L1, B1, a mechanical area, or a custom level.</p>
+    </div>
+  ` : (activeLevel.kind==='mechanical' ? `
+      <div class="levelcard" data-levelid="${activeLevel.id}">
         <div class="levelhead">
-          <p class="label">${lvl.label}</p>
-          <button class="btn btn-sm" data-dellevel="${lvl.id}">Remove</button>
+          <p class="label">${activeLevel.label}</p>
+          <button class="btn btn-sm" data-dellevel="${activeLevel.id}">Remove</button>
         </div>
-        ${lvl.rooms.map(mechCardHTML).join('')}
-        <button class="btn btn-accent" data-addmech="${lvl.id}" style="width:100%;">+ Add item to ${lvl.label}</button>
-      </div>`;
-    }
-    return `
-    <div class="levelcard" data-levelid="${lvl.id}">
+        ${activeLevel.rooms.map(mechCardHTML).join('')}
+        <button class="btn btn-accent" data-addmech="${activeLevel.id}" style="width:100%;">+ Add item to ${activeLevel.label}</button>
+      </div>` : `
+    <div class="levelcard" data-levelid="${activeLevel.id}">
       <div class="levelhead">
-        <p class="label">${lvl.label}</p>
-        <button class="btn btn-sm" data-dellevel="${lvl.id}">Remove level</button>
+        <p class="label">${activeLevel.label}</p>
+        <button class="btn btn-sm" data-dellevel="${activeLevel.id}">Remove level</button>
       </div>
       <div class="safetyblock">
         <p class="label" style="font-size:18px;">Smoke & CO detectors &mdash; required every level</p>
-        ${safetyDetectorRow(lvl,'smoke','Smoke detector present')}
-        ${safetyDetectorRow(lvl,'co','CO detector present')}
+        ${safetyDetectorRow(activeLevel,'smoke','Smoke detector present')}
+        ${safetyDetectorRow(activeLevel,'co','CO detector present')}
+        ${safetyDetectorRow(activeLevel,'combo','Combo unit present')}
+        <p class="hint">Combo Yes auto-confirms Smoke and CO too. Hold Combo to clear it \u2014 that also resets Smoke and CO, so nothing stays marked done without you actually confirming it.</p>
       </div>
-      ${lvl.rooms.map(roomCardHTML).join('')}
-      <button class="btn btn-accent" data-addroom="${lvl.id}" style="width:100%;">+ Add room to ${lvl.label}</button>
-    </div>`;
-  }).join('');
+      ${activeLevel.rooms.map((r,idx)=>roomCardHTML(r,idx)).join('')}
+      <button class="btn btn-accent" data-addroom="${activeLevel.id}" style="width:100%;">+ Add room to ${activeLevel.label}</button>
+    </div>`);
 
   app.innerHTML = `
-    <div class="topbar">
-      <button class="backbtn" id="backProp">&larr; Back to property</button>
-      <p class="addr-line">${p.address}</p>
-      <h1>Interior</h1>
-    </div>
+    ${propertyChromeHTML(p)}
     <div class="content">
-      ${levelsHTML}
-      <p class="label" style="margin:16px 0 8px;">Add a level</p>
-      <div class="chiprow">
-        <button class="btn" data-addlevel="L1">+ L1</button>
-        <button class="btn" data-addlevel="L2">+ L2</button>
-        <button class="btn" data-addlevel="B1">+ B1</button>
-        <button class="btn" data-addlevel="Mechanical area">+ Mechanical area</button>
-        <button class="btn" data-addlevel="custom">+ Custom</button>
-      </div>
+      ${levelHTML}
     </div>
-    <div class="footer-actions"><button class="btn" id="backHomeBtn">Done</button></div>
   `;
-
-  document.getElementById('backProp').onclick = ()=>renderPropertyHome();
-  document.getElementById('backHomeBtn').onclick = ()=>renderPropertyHome();
+  wirePropertyChrome(app, p);
 
   app.querySelectorAll('[data-det]').forEach(btn=>{
     const [levelId,key] = btn.dataset.det.split('|');
     const val = (btn.dataset.val==='yes');
     bindTapHold(btn,
-      ()=>{ findLevel(p,levelId).safety[key].present = val; saveCurrent(); renderRooms(); },
-      ()=>{ findLevel(p,levelId).safety[key].present = null; saveCurrent(); toast('Cleared.'); renderRooms(); }
+      ()=>{
+        const lvl = findLevel(p,levelId);
+        lvl.safety[key].present = val;
+        if(key==='combo' && val===true){
+          lvl.safety.smoke.present = true;
+          lvl.safety.co.present = true;
+        }
+        saveCurrent(); renderRooms();
+      },
+      ()=>{
+        const lvl = findLevel(p,levelId);
+        lvl.safety[key].present = null;
+        if(key==='combo'){
+          lvl.safety.smoke.present = null;
+          lvl.safety.co.present = null;
+        }
+        saveCurrent(); toast('Cleared.'); renderRooms();
+      }
     );
   });
   p.levels.filter(l=>l.kind==='rooms').forEach(lvl=>{
     wirePhotoTile(app, 'det_'+lvl.id+'_smoke', ()=>lvl.safety.smoke.photos, renderRooms);
     wirePhotoTile(app, 'det_'+lvl.id+'_co', ()=>lvl.safety.co.photos, renderRooms);
+    wirePhotoTile(app, 'det_'+lvl.id+'_combo', ()=>lvl.safety.combo.photos, renderRooms);
   });
 
-  app.querySelectorAll('[data-addlevel]').forEach(btn=>{
-    btn.onclick = ()=>{
-      let label = btn.dataset.addlevel;
-      if(label==='custom'){
-        askText('Level label', 'e.g. L3, Attic', (custom)=>{
-          if(!custom || !custom.trim()) return;
-          p.levels.push(mkLevel(custom.trim()));
-          saveCurrent(); renderRooms();
-        });
-        return;
-      }
-      p.levels.push(mkLevel(label));
-      saveCurrent(); renderRooms();
-    };
-  });
   app.querySelectorAll('[data-dellevel]').forEach(btn=>{
     btn.onclick = ()=>{
       askConfirm('Remove this level?', 'Everything inside it goes too.', ()=>{
         p.levels = p.levels.filter(l=>l.id!==btn.dataset.dellevel);
-        saveCurrent(); renderRooms();
+        saveCurrent();
+        if(currentTab === btn.dataset.dellevel) currentTab = 'exterior';
+        renderCurrentTab();
       });
     };
   });
@@ -1220,10 +1400,29 @@ function renderRooms(){
     };
   });
   app.querySelectorAll('[data-roomselect]').forEach(sel=>{
-    sel.onchange = ()=>{ findRoomAnyLevel(p,sel.dataset.roomselect).name = sel.value; saveCurrent(); renderRooms(); };
+    sel.onchange = ()=>{
+      const r = findRoomAnyLevel(p, sel.dataset.roomselect);
+      const lvl = p.levels.find(l=> l.kind==='rooms' && l.rooms.some(x=>x.id===r.id));
+      let picked = sel.value;
+      if(picked === 'Bedroom'){
+        r.name = 'Bedroom ' + nextBedroomNumber(p);
+      } else if(picked === 'Other'){
+        r.name = 'Other';
+      } else {
+        r.name = uniqueNameForLevel(lvl, picked, r.id);
+      }
+      saveCurrent(); renderRooms();
+    };
   });
   app.querySelectorAll('[data-roomcustom]').forEach(inp=>{
-    inp.onblur = ()=>{ const r=findRoomAnyLevel(p,inp.dataset.roomcustom); if(inp.value.trim()) r.name=inp.value.trim(); saveCurrent(); };
+    inp.onblur = ()=>{
+      const r=findRoomAnyLevel(p,inp.dataset.roomcustom);
+      if(inp.value.trim()){
+        const lvl = p.levels.find(l=> l.kind==='rooms' && l.rooms.some(x=>x.id===r.id));
+        r.name = uniqueNameForLevel(lvl, inp.value.trim(), r.id);
+      }
+      saveCurrent();
+    };
   });
   app.querySelectorAll('[data-roomnotes]').forEach(ta=>{
     ta.onblur = ()=>{ findRoomAnyLevel(p,ta.dataset.roomnotes).notes = ta.value; saveCurrent(); };
@@ -1278,7 +1477,7 @@ function renderRooms(){
     inp.onblur = ()=>{
       const lvl = p.levels.find(l=>l.kind==='mechanical' && l.rooms.some(m=>m.id===inp.dataset.mechlabel));
       const item = lvl.rooms.find(m=>m.id===inp.dataset.mechlabel);
-      item.label = inp.value.trim();
+      item.label = uniqueMechLabel(lvl, inp.value.trim(), item.id);
       saveCurrent(); renderRooms();
     };
   });
@@ -1307,33 +1506,30 @@ function renderNotes(){
   const p = findProp(currentPropId);
   const app = document.getElementById('app');
   app.innerHTML = `
-    <div class="topbar">
-      <button class="backbtn" id="backProp">&larr; Back to property</button>
-      <p class="addr-line">${p.address}</p>
-      <h1>General notes</h1>
-    </div>
+    ${propertyChromeHTML(p)}
     <div class="content">
       <div class="card"><textarea id="genNotes" style="min-height:220px;" placeholder="Anything that doesn't fit elsewhere...">${p.generalNotes||''}</textarea></div>
     </div>
-    <div class="footer-actions"><button class="btn" id="backHomeBtn">Done</button></div>
   `;
-  document.getElementById('backProp').onclick = ()=>renderPropertyHome();
-  document.getElementById('backHomeBtn').onclick = ()=>{ p.generalNotes = document.getElementById('genNotes').value; saveCurrent(); renderPropertyHome(); };
+  wirePropertyChrome(app, p);
+  document.getElementById('genNotes').onblur = (e)=>{ p.generalNotes = e.target.value; saveCurrent(); };
 }
 
 /* ---------- Export ---------- */
 function buildNotesText(p){
   const f = v => v===true?'Yes':(v===false?'No':null);
   let lines = [];
-  const put = (label, val) => { if(val!==null && val!==undefined && val!=='') lines.push(label + ': ' + val); };
+  const put = (label, val) => { if(val!==null && val!==undefined && val!=='') lines.push('- **' + label + ':** ' + val); };
 
-  lines.push('FIELD NOTES \u2014 ' + p.address);
+  lines.push('# Field Notes \u2014 ' + p.address);
+  lines.push('');
   put('File number', p.fileNumber);
   put('Inspection date/time', p.appointment ? formatAppt(p.appointment) : null);
   put('Effective date', p.effectiveDate);
   put('Occupancy', p.occupancy);
   lines.push('');
-  lines.push('EXTERIOR');
+  lines.push('## Exterior');
+  lines.push('');
   const found = p.exterior.foundation;
   if(found.materials.length || found.types.length || found.condition){
     put('Foundation', [found.materials.join(', '), found.types.join(', '), found.condition].filter(Boolean).join(' \u2014 '));
@@ -1378,36 +1574,41 @@ function buildNotesText(p){
   lines.push('');
 
   p.levels.forEach(lvl=>{
+    lines.push('## ' + lvl.label);
+    lines.push('');
     if(lvl.kind==='mechanical'){
-      lines.push(lvl.label);
       lvl.rooms.forEach(item=>{
         if(!item.label && item.photos.length===0) return;
         put(item.label || 'Unlabeled item', item.photos.length + ' photo(s) attached');
-        put('  Fuel type', item.fuelType);
+        put('Fuel type', item.fuelType);
         if((item.label||'').trim().toLowerCase()==='water heater') put('Water heater strapped', f(item.strapped));
       });
     } else {
-      lines.push(lvl.label);
       put('Smoke detector present', f(lvl.safety.smoke.present));
       put('CO detector present', f(lvl.safety.co.present));
+      put('Combo unit present', f(lvl.safety.combo.present));
       lvl.rooms.forEach(r=>{
-        lines.push('Room: ' + (r.name||'Unnamed room'));
-        put('  Flooring', r.flooringType);
-        put('  Ceiling height', r.ceilingHeight);
-        put('  Ceiling style', r.ceilingStyle);
-        put('  Condition', r.condition);
+        lines.push('');
+        lines.push('### ' + (r.name||'Unnamed room'));
+        lines.push('');
+        put('Flooring', r.flooringType);
+        put('Ceiling height', r.ceilingHeight);
+        put('Ceiling style', r.ceilingStyle);
+        put('Condition', r.condition);
         if(r.updated && r.updated.yesNo){
-          put('  Updated', [r.updated.what, r.updated.when].filter(Boolean).join(' \u2014 '));
+          put('Updated', [r.updated.what, r.updated.when].filter(Boolean).join(' \u2014 '));
         } else if(r.updated && r.updated.yesNo===false){
-          put('  Updated', 'No');
+          put('Updated', 'No');
         }
-        put('  Room notes', r.notes);
+        put('Room notes', r.notes);
       });
     }
     lines.push('');
   });
 
-  put('General notes', p.generalNotes);
+  lines.push('## General notes');
+  lines.push('');
+  lines.push(p.generalNotes || '(none)');
   return lines.join('\n');
 }
 
@@ -1416,7 +1617,7 @@ function collectPhotoFiles(p){
   const addAll = (arr, label)=>{
     (arr||[]).forEach((ph,i)=>{
       const blob = dataURLtoBlob(ph.src);
-      const name = sanitize(p.address) + ' - ' + sanitize(label) + ' - ' + (i+1) + '.jpg';
+      const name = sanitize(shortenAddressForFilename(p.address)) + ' - ' + sanitize(label) + ' - ' + (i+1) + '.jpg';
       files.push(new File([blob], name, {type:'image/jpeg', lastModified: ph.takenAt || Date.now()}));
     });
   };
@@ -1437,6 +1638,7 @@ function collectPhotoFiles(p){
     } else {
       addAll(lvl.safety.smoke.photos, lvl.label + ' - Smoke detector');
       addAll(lvl.safety.co.photos, lvl.label + ' - CO detector');
+      addAll(lvl.safety.combo.photos, lvl.label + ' - Combo smoke-CO unit');
       lvl.rooms.forEach(r=>{
         const rn = lvl.label + ' ' + (r.name || 'Room');
         addAll(r.roomPhotos, rn);
@@ -1555,7 +1757,7 @@ async function renderExport(){
   document.getElementById('backHomeBtn').onclick = ()=>renderPropertyHome();
 
   const getAllFiles = ()=>{
-    const notesFile = new File([buildNotesText(p)], sanitize(p.address)+' - Field Notes.txt', {type:'text/plain'});
+    const notesFile = new File([buildNotesText(p)], sanitize(shortenAddressForFilename(p.address))+' - Field Notes.md', {type:'text/markdown'});
     return [notesFile, ...collectPhotoFiles(p)];
   };
 
@@ -1564,7 +1766,7 @@ async function renderExport(){
   // share() call, which is what was likely tripping the permission error.
   let zipFile = null;
   buildZip(getAllFiles()).then((zipBlob)=>{
-    zipFile = new File([zipBlob], sanitize(p.address) + '.zip', {type:'application/zip'});
+    zipFile = new File([zipBlob], sanitize(shortenAddressForFilename(p.address)) + '.zip', {type:'application/zip'});
     document.getElementById('shareZipBtn').disabled = false;
     document.getElementById('shareZipBtn').textContent = 'Share as one ZIP file';
     document.getElementById('downloadZipBtn').disabled = false;
