@@ -1300,33 +1300,33 @@ function renderRooms(){
     return `
     <div class="roomcard ${idx % 2 === 1 ? 'alt' : ''}" data-roomid="${r.id}">
       <div class="row" style="align-items:flex-start;gap:12px;">
-        <div style="flex:1;">
+        <div style="flex:7;">
           <select data-roomselect="${r.id}" class="room-name-select" style="width:100%;font-weight:700;font-size:19px;">${nameOpts}</select>
           ${showOtherBox ? `<input type="text" data-roomcustom="${r.id}" value="${r.name==='Other'?'':r.name}" placeholder="Type room name" style="margin-top:8px;">` : ''}
           <button class="btn btn-sm" data-delroom="${r.id}" style="margin-top:8px;">Remove</button>
         </div>
-        <div style="flex:1;">
+        <div style="flex:3;">
           ${photoTileHTML('room_'+r.id, 'Photo of room', r.roomPhotos)}
         </div>
       </div>
 
       <div class="row" style="align-items:flex-start;gap:12px;margin-top:14px;">
-        <div style="flex:1;">
+        <div style="flex:7;">
           <p class="fieldhead" style="margin-top:0;">Flooring type</p>
           <div class="chiprow">${floorChips}</div>
         </div>
-        <div style="flex:1;">
+        <div style="flex:3;">
           ${photoTileHTML('floor_'+r.id, 'Flooring photo', r.flooringPhotos)}
         </div>
       </div>
 
       <div class="row" style="align-items:flex-start;gap:12px;margin-top:14px;">
-        <div style="flex:1;">
+        <div style="flex:7;">
           <p class="fieldhead" style="margin-top:0;">Ceiling height</p>
           <p class="sub">Measured at highest point &mdash; nearest foot (UAD 3.6)</p>
           <div class="chiprow">${ceilChips}</div>
         </div>
-        <div style="flex:1;">
+        <div style="flex:3;">
           <p class="fieldhead" style="margin-top:0;">Ceiling style</p>
           <div class="chiprow">${styleChips}</div>
         </div>
