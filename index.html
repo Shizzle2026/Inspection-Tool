@@ -21,8 +21,7 @@
   .backbtn{display:block;width:100%;font-size:19px;font-weight:700;padding:14px 18px;border-radius:12px;border:2px solid var(--accent);background:var(--accent-bg);color:var(--accent);min-height:54px;margin-bottom:12px;}
   .addr-line{font-size:16px;font-weight:600;color:var(--sub);margin:0 0 2px;}
   .topbar h1{font-size:20px;margin:0;font-weight:700;}
-  .propheader{border-bottom:2px solid var(--line);background:var(--bg);}
-  .propheader-top{padding:16px 16px 12px;}
+  .propheader-top{padding:16px 16px 12px;border-bottom:2px solid var(--line);background:var(--bg);}
   .propheader-top .row{align-items:flex-start;}
   .tabbar{position:sticky;top:0;z-index:20;background:var(--bg);display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;border-top:2px solid var(--line);border-bottom:2px solid var(--line);}
   .tabbtn{font-size:15px;font-weight:700;padding:10px 14px;border-radius:10px;border:2px solid var(--line);background:var(--bg2);color:var(--text);min-height:44px;}
@@ -152,11 +151,12 @@ const EXTERIOR_COMPONENTS = [
   ['roof','Roof', ['Composition shingle','Architectural shingle','Preformed metal','Tile','Slate','Wood shake','Flat / membrane','Other'], 'Material'],
 ];
 
-const CEILING_HEIGHT_OPTIONS = ['6 ft or less','7 ft','8 ft','9 ft','10 ft','11 ft','12 ft or more'];
+const CEILING_HEIGHT_OPTIONS = ['Less than 7 ft','7 ft','8 ft','9 ft','10 ft or more','2 or more stories'];
 const CEILING_STYLE_OPTIONS = ['Flat','Vaulted'];
-const CONDITION_OPTIONS = ['New / like new','Typical wear and tear'];
+const CONDITION_OPTIONS = ['New / like new','Typical wear and tear','Damaged and functional','Damaged and non-functional'];
 const FLOORING_OPTIONS = ['Carpet','Wood','Vinyl','LVP','Tile','Laminate','Concrete','Other'];
-const UPDATED_TIMEFRAMES = ['Less than 1 year','1 to 10 years'];
+const UPDATE_STATUS_OPTIONS = ['Not updated','Partially updated','Fully updated'];
+const UPDATED_TIMEFRAMES = ['Less than 1 year','1 to 5 years','5 to 10 years','10 or more years'];
 const FENCE_MATERIALS = ['Wood','Metal','Vinyl','Chain link'];
 const FURNACE_FUELS = ['Gas','Electric','Oil','Propane'];
 const WATER_HEATER_FUELS = ['Gas','Electric'];
@@ -210,7 +210,7 @@ function mkRoom(name){
     id:'r_'+Date.now()+'_'+Math.random().toString(36).slice(2,6), name:name||'',
     roomPhotos:[], flooringType:null, flooringPhotos:[],
     ceilingHeight:null, ceilingStyle:null, condition:null, notes:'',
-    updated: { yesNo:null, what:'', when:null }
+    updated: { status:null, what:'', when:null }
   };
 }
 function mkMechItem(label){
@@ -771,22 +771,20 @@ function propertyChromeHTML(p){
   const tabsHtml = tabList(p).map(t=>`<button class="tabbtn ${currentTab===t.id?'active':''}" data-gotab="${t.id}">${t.label}</button>`).join('')
     + `<button class="tabbtn addtab" id="addLevelTabBtn">+ Level</button>`;
   return `
-    <div class="propheader">
-      <div class="propheader-top">
-        <button class="backbtn" id="backAllProps" style="margin-bottom:10px;">&larr; Back to all properties</button>
-        <div class="row" style="align-items:flex-start;">
-          <div>
-            <p class="addr-line" style="margin:0;">${p.address}</p>
-            ${metaBits.length ? `<p class="sub" style="margin-top:2px;">${metaBits.join(' \u2022 ')}</p>` : ''}
-          </div>
-          <div style="display:flex;gap:8px;flex-shrink:0;">
-            <button class="btn btn-sm" id="editDetailsBtn">Edit</button>
-            <button class="btn btn-sm" id="exportBtnHeader">Export</button>
-          </div>
+    <div class="propheader-top">
+      <button class="backbtn" id="backAllProps" style="margin-bottom:10px;">&larr; Back to all properties</button>
+      <div class="row" style="align-items:flex-start;">
+        <div>
+          <p class="addr-line" style="margin:0;">${p.address}</p>
+          ${metaBits.length ? `<p class="sub" style="margin-top:2px;">${metaBits.join(' \u2022 ')}</p>` : ''}
+        </div>
+        <div style="display:flex;gap:8px;flex-shrink:0;">
+          <button class="btn btn-sm" id="editDetailsBtn">Edit</button>
+          <button class="btn btn-sm" id="exportBtnHeader">Export</button>
         </div>
       </div>
-      <div class="tabbar">${tabsHtml}</div>
     </div>
+    <div class="tabbar">${tabsHtml}</div>
   `;
 }
 function wirePropertyChrome(app, p){
@@ -1227,12 +1225,11 @@ function renderRooms(){
     const condChips = CONDITION_OPTIONS.map(v=>`<button class="chip ${r.condition===v?'selected':''}" data-cond="${r.id}" data-condval="${v}">${v}</button>`).join('');
     const floorChips = FLOORING_OPTIONS.map(v=>`<button class="chip ${r.flooringType===v?'selected':''}" data-floor="${r.id}" data-floorval="${v}">${v}</button>`).join('');
     const updatedBlock = isKitchenOrBath(r.name) ? `
-      <p class="fieldhead">Updated?</p>
+      <p class="fieldhead">Update status</p>
       <div class="chiprow">
-        <button class="chip ${r.updated.yesNo===true?'selected':''}" data-updyn="${r.id}" data-val="yes">Yes</button>
-        <button class="chip ${r.updated.yesNo===false?'selected':''}" data-updyn="${r.id}" data-val="no">No</button>
+        ${UPDATE_STATUS_OPTIONS.map(v=>`<button class="chip ${r.updated.status===v?'selected':''}" data-updstatus="${r.id}" data-val="${v}">${v}</button>`).join('')}
       </div>
-      ${r.updated.yesNo ? `
+      ${(r.updated.status && r.updated.status!=='Not updated') ? `
         <input type="text" data-updwhat="${r.id}" value="${(r.updated.what||'').replace(/"/g,'&quot;')}" placeholder="What was updated (e.g. Appliances)" style="margin-top:8px;">
         <div class="chiprow">
           ${UPDATED_TIMEFRAMES.map(v=>`<button class="chip ${r.updated.when===v?'selected':''}" data-updwhen="${r.id}" data-val="${v}">${v}</button>`).join('')}
@@ -1443,10 +1440,9 @@ function renderRooms(){
     const r = findRoomAnyLevel(p,btn.dataset.floor);
     bindSingleSelectTap(btn, ()=>r.flooringType, btn.dataset.floorval, (v)=>{ r.flooringType=v; saveCurrent(); renderRooms(); });
   });
-  app.querySelectorAll('[data-updyn]').forEach(btn=>{
-    const r = findRoomAnyLevel(p,btn.dataset.updyn);
-    const v = (btn.dataset.val==='yes');
-    bindSingleSelectTap(btn, ()=>r.updated.yesNo, v, (val)=>{ r.updated.yesNo=val; saveCurrent(); renderRooms(); });
+  app.querySelectorAll('[data-updstatus]').forEach(btn=>{
+    const r = findRoomAnyLevel(p,btn.dataset.updstatus);
+    bindSingleSelectTap(btn, ()=>r.updated.status, btn.dataset.val, (v)=>{ r.updated.status=v; saveCurrent(); renderRooms(); });
   });
   app.querySelectorAll('[data-updwhat]').forEach(inp=>{
     inp.onblur = ()=>{ findRoomAnyLevel(p,inp.dataset.updwhat).updated.what = inp.value; saveCurrent(); };
@@ -1595,10 +1591,10 @@ function buildNotesText(p){
         put('Ceiling height', r.ceilingHeight);
         put('Ceiling style', r.ceilingStyle);
         put('Condition', r.condition);
-        if(r.updated && r.updated.yesNo){
-          put('Updated', [r.updated.what, r.updated.when].filter(Boolean).join(' \u2014 '));
-        } else if(r.updated && r.updated.yesNo===false){
-          put('Updated', 'No');
+        if(r.updated && r.updated.status){
+          const bits = [r.updated.status];
+          if(r.updated.status !== 'Not updated'){ bits.push(r.updated.what); bits.push(r.updated.when); }
+          put('Updated', bits.filter(Boolean).join(' \u2014 '));
         }
         put('Room notes', r.notes);
       });
