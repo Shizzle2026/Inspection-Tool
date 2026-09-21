@@ -27,7 +27,8 @@
   .tabbtn{font-size:calc(15px * var(--tab-scale, 1));font-weight:700;padding:calc(10px * var(--tab-scale, 1)) calc(14px * var(--tab-scale, 1));border-radius:10px;border:2px solid var(--line);background:var(--bg2);color:var(--text);min-height:calc(44px * var(--tab-scale, 1));}
   .tabbtn.active{background:var(--accent);border-color:var(--accent);color:#fff;}
   .tabbtn.addtab{background:var(--accent-bg);border-color:var(--accent);color:var(--accent);}
-  .roomcard.alt{background:var(--bg2);}
+  .cc-incomplete{background:#fdecea !important;}
+  .cc-complete{background:#eaf7ec !important;}
   .room-name-select{color:#0b5fb0 !important;}
   .btn{font-size:18px;font-weight:600;border-radius:12px;border:2px solid var(--line);background:var(--bg);color:var(--text);padding:14px 18px;min-height:52px;}
   .btn:active{background:var(--bg2);}
@@ -61,7 +62,6 @@
   .levelhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
   .levelhead .label{font-size:21px;}
   .safetyblock{background:var(--bg);border:2px solid var(--warn);border-radius:14px;padding:14px;margin-bottom:14px;}
-  .safetyblock.incomplete{background:#fdecea;}
   .roomcard{border:2px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px;background:var(--bg);}
   .roomcard .row{margin-bottom:6px;}
   .mechcard{border:2px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px;background:var(--bg);}
@@ -224,8 +224,9 @@ function newProperty(address){
                 alley: { present:null, surface:[], photos:[] },
                 sprinkler: { present:null, photos:[] },
                 foundation: { materials:[], types:[], condition:null },
-                siteInfluences: [],
-                views: [] },
+                siteInfluence: {present:null, type:'', proximity:null, impact:null, photos:[]},
+                view: {present:null, type:'', range:null, primary:null, impact:null, photos:[]},
+                additionalPhotos: [] },
     levels: [],
     generalNotes: '',
     generalNotesPhotos: []
@@ -439,10 +440,12 @@ function migratePropertyPhotos(p){
     fix(p.exterior.carport.photos);
     if(!p.exterior.alley){ p.exterior.alley = {present:null, surface:[], photos:[]}; changed = true; }
     fix(p.exterior.alley.photos);
-    if(!p.exterior.siteInfluences){ p.exterior.siteInfluences = []; changed = true; }
-    p.exterior.siteInfluences.forEach(entry=>fix(entry.photos));
-    if(!p.exterior.views){ p.exterior.views = []; changed = true; }
-    p.exterior.views.forEach(entry=>fix(entry.photos));
+    if(!p.exterior.siteInfluence || Array.isArray(p.exterior.siteInfluence)){ p.exterior.siteInfluence = {present:null, type:'', proximity:null, impact:null, photos:[]}; changed = true; }
+    fix(p.exterior.siteInfluence.photos);
+    if(!p.exterior.view || Array.isArray(p.exterior.view)){ p.exterior.view = {present:null, type:'', range:null, primary:null, impact:null, photos:[]}; changed = true; }
+    fix(p.exterior.view.photos);
+    if(!p.exterior.additionalPhotos){ p.exterior.additionalPhotos = []; changed = true; }
+    fix(p.exterior.additionalPhotos);
   }
   if(p.exterior && !p.exterior.foundation){ p.exterior.foundation = {materials:[], types:[], condition:null}; changed = true; }
   if(!p.broadband){ p.broadband = {present:null}; changed = true; }
@@ -1021,8 +1024,9 @@ function wirePhotoTile(container, key, getArr, rerender){
 function componentCardHTML(key,label,typeOptions,comp,typeFieldLabel){
   const typeChips = typeOptions.map(v=>`<button class="chip ${comp.types.includes(v)?'selected':''}" data-comptype="${key}" data-val="${v}">${v}</button>`).join('');
   const condChips = CONDITION_OPTIONS.map(v=>`<button class="chip ${comp.condition===v?'selected':''}" data-compcond="${key}" data-val="${v}">${v}</button>`).join('');
+  const complete = comp.types.length>0 && comp.condition;
   return `
-    <div class="card">
+    <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <p class="label">${label}</p>
       <p class="fieldhead">${typeFieldLabel || 'Type'}</p>
       <p class="sub">Tap all that apply</p>
@@ -1036,8 +1040,9 @@ function foundationCardHTML(f){
   const matChips = FOUNDATION_MATERIALS.map(v=>`<button class="chip ${f.materials.includes(v)?'selected':''}" data-foundmat="${v}">${v}</button>`).join('');
   const typeChips = FOUNDATION_TYPES.map(v=>`<button class="chip ${f.types.includes(v)?'selected':''}" data-foundtype="${v}">${v}</button>`).join('');
   const condChips = CONDITION_OPTIONS.map(v=>`<button class="chip ${f.condition===v?'selected':''}" data-foundcond="${v}">${v}</button>`).join('');
+  const complete = f.materials.length>0 && f.types.length>0 && f.condition;
   return `
-    <div class="card">
+    <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <p class="label">Foundation</p>
       <p class="fieldhead">Material</p>
       <p class="sub">Tap all that apply</p>
@@ -1052,8 +1057,9 @@ function foundationCardHTML(f){
 
 function fenceSideHTML(side, label, data){
   const matChips = FENCE_MATERIALS.map(v=>`<button class="chip ${data.materials.includes(v)?'selected':''}" data-fencemat="${side}" data-val="${v}">${v}</button>`).join('');
+  const complete = data.present===false || (data.present===true && data.materials.length>0);
   return `
-    <div class="card">
+    <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <div class="row" style="align-items:flex-start;">
         <div style="flex:1;">
           <p class="label">${label} fence present?</p>
@@ -1075,8 +1081,9 @@ function fenceSideHTML(side, label, data){
 function featureCardHTML(key, label, data, typeOptions, materialOptions){
   const typeChips = typeOptions.map(v=>`<button class="chip ${data.type===v?'selected':''}" data-feattype="${key}" data-val="${v}">${v}</button>`).join('');
   const matChips = materialOptions.map(v=>`<button class="chip ${data.materials.includes(v)?'selected':''}" data-featmat="${key}" data-val="${v}">${v}</button>`).join('');
+  const complete = data.present===false || (data.present===true && data.type && data.materials.length>0);
   return `
-    <div class="card">
+    <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <div class="row" style="align-items:flex-start;">
         <div style="flex:1;">
           <p class="label">${label} present?</p>
@@ -1100,8 +1107,9 @@ function featureCardHTML(key, label, data, typeOptions, materialOptions){
 function drivewayCardHTML(d){
   const matChips = DRIVEWAY_MATERIALS.map(v=>`<button class="chip ${d.materials.includes(v)?'selected':''}" data-drivemat="${v}">${v}</button>`).join('');
   const capChips = DRIVEWAY_CAPACITIES.map(v=>`<button class="chip ${d.capacity===v?'selected':''}" data-drivecap="${v}">${v} car</button>`).join('');
+  const complete = d.present===false || (d.present===true && d.materials.length>0 && d.capacity);
   return `
-    <div class="card">
+    <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <div class="row" style="align-items:flex-start;">
         <div style="flex:1;">
           <p class="label">Driveway present?</p>
@@ -1125,8 +1133,9 @@ function drivewayCardHTML(d){
 function garageCardHTML(g){
   const capChips = GARAGE_CAPACITIES.map(v=>`<button class="chip ${g.capacity===v?'selected':''}" data-garagecap="${v}">${v} car</button>`).join('');
   const attChips = GARAGE_ATTACHMENTS.map(v=>`<button class="chip ${g.attachment===v?'selected':''}" data-garageatt="${v}">${v}</button>`).join('');
+  const complete = g.present===false || (g.present===true && g.attachment && g.capacity);
   return `
-    <div class="card">
+    <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <div class="row" style="align-items:flex-start;">
         <div style="flex:1;">
           <p class="label">Garage present?</p>
@@ -1154,8 +1163,9 @@ function garageCardHTML(g){
 function carportCardHTML(c){
   const capChips = CARPORT_CAPACITIES.map(v=>`<button class="chip ${c.capacity===v?'selected':''}" data-carportcap="${v}">${v} car</button>`).join('');
   const attChips = CARPORT_ATTACHMENTS.map(v=>`<button class="chip ${c.attachment===v?'selected':''}" data-carportatt="${v}">${v}</button>`).join('');
+  const complete = c.present===false || (c.present===true && c.attachment && c.capacity);
   return `
-    <div class="card">
+    <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <div class="row" style="align-items:flex-start;">
         <div style="flex:1;">
           <p class="label">Carport present?</p>
@@ -1177,8 +1187,9 @@ function carportCardHTML(c){
 
 function alleyCardHTML(a){
   const surfChips = ALLEY_SURFACES.map(v=>`<button class="chip ${a.surface.includes(v)?'selected':''}" data-alleysurf="${v}">${v}</button>`).join('');
+  const complete = a.present===false || (a.present===true && a.surface.length>0);
   return `
-    <div class="card">
+    <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <div class="row" style="align-items:flex-start;">
         <div style="flex:1;">
           <p class="label">Alley present?</p>
@@ -1198,8 +1209,9 @@ function alleyCardHTML(a){
 }
 
 function sprinklerCardHTML(s){
+  const complete = s.present !== null;
   return `
-    <div class="card">
+    <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <div class="row" style="align-items:flex-start;">
         <div style="flex:1;">
           <p class="label">Sprinkler system present?</p>
@@ -1213,50 +1225,61 @@ function sprinklerCardHTML(s){
     </div>`;
 }
 
-function mkSiteInfluence(){ return {id:'si_'+Date.now()+'_'+Math.random().toString(36).slice(2,6), type:'', proximity:null, impact:null, photos:[]}; }
-function mkViewEntry(){ return {id:'vw_'+Date.now()+'_'+Math.random().toString(36).slice(2,6), type:'', range:null, primary:null, impact:null, photos:[]}; }
-
-function siteInfluenceCardHTML(entry){
-  const proxChips = PROXIMITY_OPTIONS.map(v=>`<button class="chip ${entry.proximity===v?'selected':''}" data-siprox="${entry.id}" data-val="${v}">${v}</button>`).join('');
-  const impChips = IMPACT_OPTIONS.map(v=>`<button class="chip ${entry.impact===v?'selected':''}" data-siimpact="${entry.id}" data-val="${v}">${v}</button>`).join('');
+function siteInfluenceCardHTML(si){
+  const proxChips = PROXIMITY_OPTIONS.map(v=>`<button class="chip ${si.proximity===v?'selected':''}" data-siprox="${v}">${v}</button>`).join('');
+  const impChips = IMPACT_OPTIONS.map(v=>`<button class="chip ${si.impact===v?'selected':''}" data-siimpact="${v}">${v}</button>`).join('');
+  const complete = si.present===false || (si.present===true && si.proximity && si.impact);
   return `
-    <div class="card" data-sientry="${entry.id}">
+    <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <div class="row" style="align-items:flex-start;">
         <div style="flex:1;">
-          <p class="fieldhead" style="margin-top:0;">Influence type</p>
-          <input type="text" data-sitype="${entry.id}" value="${(entry.type||'').replace(/"/g,'&quot;')}" placeholder="e.g. Residential, Gas station, Power lines">
+          <p class="label">Notable site influence?</p>
+          <div class="chiprow">
+            <button class="chip ${si.present===true?'selected':''}" data-sipresent="yes">Yes</button>
+            <button class="chip ${si.present===false?'selected':''}" data-sipresent="no">No</button>
+          </div>
         </div>
-        <button class="btn btn-sm" data-sidel="${entry.id}" style="margin-left:10px;">Remove</button>
+        ${si.present ? `<div style="flex:1;">${photoTileHTML('si_photo','Site influence photo', si.photos)}</div>` : ''}
       </div>
-      <p class="fieldhead">Proximity</p>
-      <div class="chiprow">${proxChips}</div>
-      <p class="fieldhead">Impact</p>
-      <div class="chiprow">${impChips}</div>
-      ${photoTileHTML('si_photo_'+entry.id, 'Photo (optional)', entry.photos)}
+      ${si.present ? `
+        <p class="fieldhead">What is it?</p>
+        <input type="text" data-sitype value="${(si.type||'').replace(/"/g,'&quot;')}" placeholder="e.g. Gas station, Power lines, Busy road">
+        <p class="fieldhead">Proximity</p>
+        <div class="chiprow">${proxChips}</div>
+        <p class="fieldhead">Impact</p>
+        <div class="chiprow">${impChips}</div>
+      ` : ''}
     </div>`;
 }
-function viewEntryCardHTML(entry){
-  const rangeChips = VIEW_RANGE_OPTIONS.map(v=>`<button class="chip ${entry.range===v?'selected':''}" data-vwrange="${entry.id}" data-val="${v}">${v}</button>`).join('');
-  const impChips = IMPACT_OPTIONS.map(v=>`<button class="chip ${entry.impact===v?'selected':''}" data-vwimpact="${entry.id}" data-val="${v}">${v}</button>`).join('');
+function viewCardHTML(vw){
+  const rangeChips = VIEW_RANGE_OPTIONS.map(v=>`<button class="chip ${vw.range===v?'selected':''}" data-vwrange="${v}">${v}</button>`).join('');
+  const impChips = IMPACT_OPTIONS.map(v=>`<button class="chip ${vw.impact===v?'selected':''}" data-vwimpact="${v}">${v}</button>`).join('');
+  const complete = vw.present===false || (vw.present===true && vw.range && vw.primary!==null && vw.impact);
   return `
-    <div class="card" data-vwentry="${entry.id}">
+    <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <div class="row" style="align-items:flex-start;">
         <div style="flex:1;">
-          <p class="fieldhead" style="margin-top:0;">View type</p>
-          <input type="text" data-vwtype="${entry.id}" value="${(entry.type||'').replace(/"/g,'&quot;')}" placeholder="e.g. Residential, Mountain, Lake, Golf course">
+          <p class="label">Notable view?</p>
+          <div class="chiprow">
+            <button class="chip ${vw.present===true?'selected':''}" data-vwpresent="yes">Yes</button>
+            <button class="chip ${vw.present===false?'selected':''}" data-vwpresent="no">No</button>
+          </div>
         </div>
-        <button class="btn btn-sm" data-vwdel="${entry.id}" style="margin-left:10px;">Remove</button>
+        ${vw.present ? `<div style="flex:1;">${photoTileHTML('vw_photo','View photo', vw.photos)}</div>` : ''}
       </div>
-      <p class="fieldhead">Range</p>
-      <div class="chiprow">${rangeChips}</div>
-      <p class="fieldhead">Primary view?</p>
-      <div class="chiprow">
-        <button class="chip ${entry.primary===true?'selected':''}" data-vwprimary="${entry.id}" data-val="yes">Yes</button>
-        <button class="chip ${entry.primary===false?'selected':''}" data-vwprimary="${entry.id}" data-val="no">No</button>
-      </div>
-      <p class="fieldhead">Impact</p>
-      <div class="chiprow">${impChips}</div>
-      ${photoTileHTML('vw_photo_'+entry.id, 'Photo (optional)', entry.photos)}
+      ${vw.present ? `
+        <p class="fieldhead">What is it?</p>
+        <input type="text" data-vwtype value="${(vw.type||'').replace(/"/g,'&quot;')}" placeholder="e.g. Mountain, Lake, Golf course">
+        <p class="fieldhead">Range</p>
+        <div class="chiprow">${rangeChips}</div>
+        <p class="fieldhead">Primary view?</p>
+        <div class="chiprow">
+          <button class="chip ${vw.primary===true?'selected':''}" data-vwprimary="yes">Yes</button>
+          <button class="chip ${vw.primary===false?'selected':''}" data-vwprimary="no">No</button>
+        </div>
+        <p class="fieldhead">Impact</p>
+        <div class="chiprow">${impChips}</div>
+      ` : ''}
     </div>`;
 }
 
@@ -1293,7 +1316,9 @@ function renderExterior(){
       ${featureCardHTML('deck','Deck', p.exterior.features.deck, ...EXTERIOR_FEATURES.find(f=>f[0]==='deck').slice(2))}
       ${foundationCardHTML(p.exterior.foundation)}
       ${componentsHTML}
-      <div class="card">
+      ${siteInfluenceCardHTML(p.exterior.siteInfluence)}
+      ${viewCardHTML(p.exterior.view)}
+      <div class="card ${p.exterior.outbuildingPresent!==null ? 'cc-complete' : 'cc-incomplete'}">
         <div class="row"><p class="label">Outbuilding present?</p></div>
         <div class="chiprow">
           <button class="chip ${p.exterior.outbuildingPresent===true?'selected':''}" data-ob="yes">Yes</button>
@@ -1302,21 +1327,10 @@ function renderExterior(){
         ${p.exterior.outbuildingPresent ? photoTileHTML('outbuilding','Outbuilding photos', p.exterior.outbuildingPhotos) : ''}
       </div>
       <div class="card">
-        <p class="label">Site influences</p>
-        <p class="sub">One entry per nearby influence (e.g. bordering residential, a gas station across the street). Skip if nothing stands out.</p>
-      </div>
-      ${p.exterior.siteInfluences.map(siteInfluenceCardHTML).join('')}
-      <button class="btn btn-accent" id="addSiteInfluenceBtn" style="width:100%;margin-bottom:14px;">+ Add site influence</button>
-      <div class="card">
-        <p class="label">View</p>
-        <p class="sub">One entry per notable view. Skip for a plain, unremarkable view.</p>
-      </div>
-      ${p.exterior.views.map(viewEntryCardHTML).join('')}
-      <button class="btn btn-accent" id="addViewBtn" style="width:100%;margin-bottom:14px;">+ Add view</button>
-      <div class="card">
         <p class="label">Site / exterior notes</p>
         <textarea id="extNotes" placeholder="Anything else worth flagging...">${p.exterior.notes||''}</textarea>
       </div>
+      ${photoTileHTML('exteriorAdditional','Additional photos', p.exterior.additionalPhotos)}
     </div>
   `;
   wirePropertyChrome(app, p);
@@ -1331,8 +1345,9 @@ function renderExterior(){
   wirePhotoTile(app, 'alley_photo', ()=>p.exterior.alley.photos, renderExterior);
   wirePhotoTile(app, 'sprinkler_photo', ()=>p.exterior.sprinkler.photos, renderExterior);
   EXTERIOR_FEATURES.forEach(([key])=> wirePhotoTile(app, key+'_photo', ()=>p.exterior.features[key].photos, renderExterior));
-  p.exterior.siteInfluences.forEach(entry=> wirePhotoTile(app, 'si_photo_'+entry.id, ()=>entry.photos, renderExterior));
-  p.exterior.views.forEach(entry=> wirePhotoTile(app, 'vw_photo_'+entry.id, ()=>entry.photos, renderExterior));
+  wirePhotoTile(app, 'si_photo', ()=>p.exterior.siteInfluence.photos, renderExterior);
+  wirePhotoTile(app, 'vw_photo', ()=>p.exterior.view.photos, renderExterior);
+  wirePhotoTile(app, 'exteriorAdditional', ()=>p.exterior.additionalPhotos, renderExterior);
 
   app.querySelectorAll('[data-fencepresent]').forEach(btn=>{
     const side = btn.dataset.fencepresent, v = (btn.dataset.val==='yes');
@@ -1409,66 +1424,33 @@ function renderExterior(){
       ()=>{ p.exterior.alley.surface.splice(p.exterior.alley.surface.indexOf(v),1); saveCurrent(); renderExterior(); }
     );
   });
-  document.getElementById('addSiteInfluenceBtn').onclick = ()=>{
-    const entry = mkSiteInfluence();
-    p.exterior.siteInfluences.push(entry);
-    saveCurrent(); renderExterior();
-    scrollToEl(`[data-sientry="${entry.id}"]`);
-  };
-  app.querySelectorAll('[data-sidel]').forEach(btn=>{
-    btn.onclick = ()=>{
-      askConfirm('Remove this site influence?', '', ()=>{
-        p.exterior.siteInfluences = p.exterior.siteInfluences.filter(e=>e.id!==btn.dataset.sidel);
-        saveCurrent(); renderExterior();
-      });
-    };
+  document.querySelectorAll('[data-sipresent]').forEach(btn=>{
+    const v = (btn.dataset.sipresent==='yes');
+    bindSingleSelectTap(btn, ()=>p.exterior.siteInfluence.present, v, (val)=>{ p.exterior.siteInfluence.present=val; saveCurrent(); renderExterior(); });
   });
-  app.querySelectorAll('[data-sitype]').forEach(inp=>{
-    inp.onblur = ()=>{
-      const entry = p.exterior.siteInfluences.find(e=>e.id===inp.dataset.sitype);
-      entry.type = inp.value; saveCurrent();
-    };
+  const siTypeInp = document.querySelector('[data-sitype]');
+  if(siTypeInp) siTypeInp.onblur = ()=>{ p.exterior.siteInfluence.type = siTypeInp.value; saveCurrent(); };
+  document.querySelectorAll('[data-siprox]').forEach(btn=>{
+    bindSingleSelectTap(btn, ()=>p.exterior.siteInfluence.proximity, btn.dataset.siprox, (v)=>{ p.exterior.siteInfluence.proximity=v; saveCurrent(); renderExterior(); });
   });
-  app.querySelectorAll('[data-siprox]').forEach(btn=>{
-    const entry = p.exterior.siteInfluences.find(e=>e.id===btn.dataset.siprox);
-    bindSingleSelectTap(btn, ()=>entry.proximity, btn.dataset.val, (v)=>{ entry.proximity=v; saveCurrent(); renderExterior(); });
+  document.querySelectorAll('[data-siimpact]').forEach(btn=>{
+    bindSingleSelectTap(btn, ()=>p.exterior.siteInfluence.impact, btn.dataset.siimpact, (v)=>{ p.exterior.siteInfluence.impact=v; saveCurrent(); renderExterior(); });
   });
-  app.querySelectorAll('[data-siimpact]').forEach(btn=>{
-    const entry = p.exterior.siteInfluences.find(e=>e.id===btn.dataset.siimpact);
-    bindSingleSelectTap(btn, ()=>entry.impact, btn.dataset.val, (v)=>{ entry.impact=v; saveCurrent(); renderExterior(); });
+  document.querySelectorAll('[data-vwpresent]').forEach(btn=>{
+    const v = (btn.dataset.vwpresent==='yes');
+    bindSingleSelectTap(btn, ()=>p.exterior.view.present, v, (val)=>{ p.exterior.view.present=val; saveCurrent(); renderExterior(); });
   });
-  document.getElementById('addViewBtn').onclick = ()=>{
-    const entry = mkViewEntry();
-    p.exterior.views.push(entry);
-    saveCurrent(); renderExterior();
-    scrollToEl(`[data-vwentry="${entry.id}"]`);
-  };
-  app.querySelectorAll('[data-vwdel]').forEach(btn=>{
-    btn.onclick = ()=>{
-      askConfirm('Remove this view entry?', '', ()=>{
-        p.exterior.views = p.exterior.views.filter(e=>e.id!==btn.dataset.vwdel);
-        saveCurrent(); renderExterior();
-      });
-    };
+  const vwTypeInp = document.querySelector('[data-vwtype]');
+  if(vwTypeInp) vwTypeInp.onblur = ()=>{ p.exterior.view.type = vwTypeInp.value; saveCurrent(); };
+  document.querySelectorAll('[data-vwrange]').forEach(btn=>{
+    bindSingleSelectTap(btn, ()=>p.exterior.view.range, btn.dataset.vwrange, (v)=>{ p.exterior.view.range=v; saveCurrent(); renderExterior(); });
   });
-  app.querySelectorAll('[data-vwtype]').forEach(inp=>{
-    inp.onblur = ()=>{
-      const entry = p.exterior.views.find(e=>e.id===inp.dataset.vwtype);
-      entry.type = inp.value; saveCurrent();
-    };
+  document.querySelectorAll('[data-vwprimary]').forEach(btn=>{
+    const v = (btn.dataset.vwprimary==='yes');
+    bindSingleSelectTap(btn, ()=>p.exterior.view.primary, v, (val)=>{ p.exterior.view.primary=val; saveCurrent(); renderExterior(); });
   });
-  app.querySelectorAll('[data-vwrange]').forEach(btn=>{
-    const entry = p.exterior.views.find(e=>e.id===btn.dataset.vwrange);
-    bindSingleSelectTap(btn, ()=>entry.range, btn.dataset.val, (v)=>{ entry.range=v; saveCurrent(); renderExterior(); });
-  });
-  app.querySelectorAll('[data-vwprimary]').forEach(btn=>{
-    const entry = p.exterior.views.find(e=>e.id===btn.dataset.vwprimary);
-    const v = (btn.dataset.val==='yes');
-    bindSingleSelectTap(btn, ()=>entry.primary, v, (val)=>{ entry.primary=val; saveCurrent(); renderExterior(); });
-  });
-  app.querySelectorAll('[data-vwimpact]').forEach(btn=>{
-    const entry = p.exterior.views.find(e=>e.id===btn.dataset.vwimpact);
-    bindSingleSelectTap(btn, ()=>entry.impact, btn.dataset.val, (v)=>{ entry.impact=v; saveCurrent(); renderExterior(); });
+  document.querySelectorAll('[data-vwimpact]').forEach(btn=>{
+    bindSingleSelectTap(btn, ()=>p.exterior.view.impact, btn.dataset.vwimpact, (v)=>{ p.exterior.view.impact=v; saveCurrent(); renderExterior(); });
   });
   app.querySelectorAll('[data-sprinkpresent]').forEach(btn=>{
     const v = (btn.dataset.sprinkpresent==='yes');
@@ -1520,7 +1502,7 @@ function renderExterior(){
 function broadbandCardHTML(p){
   const complete = p.broadband.present !== null;
   return `
-    <div class="safetyblock ${complete ? '' : 'incomplete'}">
+    <div class="safetyblock ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <div class="row">
         <p class="label" style="font-size:18px;">Broadband Internet Available</p>
         <div class="chiprow" style="margin-top:0;">
@@ -1554,6 +1536,7 @@ function renderRooms(){
 
   const roomCardHTML = (r, idx)=>{
     const roomCategory = roomNameCategory(r.name);
+    const roomComplete = !!(r.flooringType && r.ceilingHeight && r.ceilingStyle && r.condition);
     const showOtherBox = (roomCategory === 'Other') || (r.name !== roomCategory);
     const nameOpts = ROOM_NAME_OPTIONS.map(n=>`<option value="${n}" ${n===roomCategory?'selected':''}>${n}</option>`).join('');
     const ceilChips = CEILING_HEIGHT_OPTIONS.map(v=>`<button class="chip ${r.ceilingHeight===v?'selected':''}" data-ceil="${r.id}" data-ceilval="${v}">${v}</button>`).join('');
@@ -1573,7 +1556,7 @@ function renderRooms(){
       ` : ''}
     ` : '';
     return `
-    <div class="roomcard ${idx % 2 === 1 ? 'alt' : ''}" data-roomid="${r.id}">
+    <div class="roomcard ${roomComplete ? 'cc-complete' : 'cc-incomplete'}" data-roomid="${r.id}">
       <div class="row" style="align-items:flex-start;gap:12px;">
         <div style="flex:30;">
           <select data-roomselect="${r.id}" class="room-name-select" style="width:100%;font-weight:700;font-size:19px;">${nameOpts}</select>
@@ -1625,8 +1608,11 @@ function renderRooms(){
     const lbl = (item.label||'').trim().toLowerCase();
     const isWaterHeater = lbl==='water heater';
     const isFurnace = lbl==='furnace';
+    let complete = !!(item.label||'').trim();
+    if(isFurnace) complete = complete && !!item.fuelType;
+    if(isWaterHeater) complete = complete && !!item.fuelType && item.strapped!==null;
     return `
-    <div class="mechcard" data-mechid="${item.id}">
+    <div class="mechcard ${complete ? 'cc-complete' : 'cc-incomplete'}" data-mechid="${item.id}">
       <div class="row">
         <input type="text" data-mechlabel="${item.id}" value="${item.label}" placeholder="Label this photo (e.g. Water softener)">
         <button class="btn btn-sm" data-delmech="${item.id}">Remove</button>
@@ -1650,7 +1636,7 @@ function renderRooms(){
             <button class="chip ${item.strapped===false?'selected':''}" data-strap="${item.id}" data-val="no">No</button>
           </div>
         </div>
-        <p class="hint">Hold a button down to clear it.</p>
+        <p class="hint">Tap the same answer again fast (double-tap) to clear it.</p>
       ` : ''}
     </div>`;
   };
@@ -1676,12 +1662,12 @@ function renderRooms(){
         <p class="label">${activeLevel.label}</p>
         <button class="btn btn-sm" data-dellevel="${activeLevel.id}">Remove level</button>
       </div>
-      <div class="safetyblock ${(activeLevel.safety.smoke.present!==null && activeLevel.safety.co.present!==null && activeLevel.safety.combo.present!==null) ? '' : 'incomplete'}">
+      <div class="safetyblock ${(activeLevel.safety.smoke.present!==null && activeLevel.safety.co.present!==null && activeLevel.safety.combo.present!==null) ? 'cc-complete' : 'cc-incomplete'}">
         <p class="label" style="font-size:18px;">Smoke & CO detectors &mdash; required every level</p>
         ${safetyDetectorRow(activeLevel,'smoke','Smoke detector present')}
         ${safetyDetectorRow(activeLevel,'co','CO detector present')}
         ${safetyDetectorRow(activeLevel,'combo','Combo unit present')}
-        <p class="hint">Combo Yes auto-confirms Smoke and CO too. Hold Combo to clear it \u2014 that also resets Smoke and CO, so nothing stays marked done without you actually confirming it.</p>
+        <p class="hint">Combo Yes auto-confirms Smoke and CO too. Double-tap Combo fast to clear it \u2014 that also resets Smoke and CO, so nothing stays marked done without you actually confirming it.</p>
       </div>
       ${activeLevel.label === 'L1' ? broadbandCardHTML(p) : ''}
       ${activeLevel.rooms.map((r,idx)=>roomCardHTML(r,idx)).join('')}
@@ -1699,26 +1685,15 @@ function renderRooms(){
   app.querySelectorAll('[data-det]').forEach(btn=>{
     const [levelId,key] = btn.dataset.det.split('|');
     const val = (btn.dataset.val==='yes');
-    bindTapHold(btn,
-      ()=>{
-        const lvl = findLevel(p,levelId);
-        lvl.safety[key].present = val;
-        if(key==='combo' && val===true){
-          lvl.safety.smoke.present = true;
-          lvl.safety.co.present = true;
-        }
-        saveCurrent(); renderRooms();
-      },
-      ()=>{
-        const lvl = findLevel(p,levelId);
-        lvl.safety[key].present = null;
-        if(key==='combo'){
-          lvl.safety.smoke.present = null;
-          lvl.safety.co.present = null;
-        }
-        saveCurrent(); toast('Cleared.'); renderRooms();
+    const lvl = findLevel(p,levelId);
+    bindSingleSelectTap(btn, ()=>lvl.safety[key].present, val, (v)=>{
+      lvl.safety[key].present = v;
+      if(key==='combo'){
+        if(v===true){ lvl.safety.smoke.present = true; lvl.safety.co.present = true; }
+        if(v===null){ lvl.safety.smoke.present = null; lvl.safety.co.present = null; }
       }
-    );
+      saveCurrent(); renderRooms();
+    });
   });
   const broadbandBtns = app.querySelectorAll('[data-broadband]');
   if(broadbandBtns.length){
@@ -1855,10 +1830,7 @@ function renderRooms(){
     const itemId = btn.dataset.strap, val = (btn.dataset.val==='yes');
     const lvl = p.levels.find(l=>l.kind==='mechanical' && l.rooms.some(m=>m.id===itemId));
     const item = lvl.rooms.find(m=>m.id===itemId);
-    bindTapHold(btn,
-      ()=>{ item.strapped = val; saveCurrent(); renderRooms(); },
-      ()=>{ item.strapped = null; saveCurrent(); toast('Cleared.'); renderRooms(); }
-    );
+    bindSingleSelectTap(btn, ()=>item.strapped, val, (v)=>{ item.strapped=v; saveCurrent(); renderRooms(); });
   });
   app.querySelectorAll('[data-fuel]').forEach(btn=>{
     const itemId = btn.dataset.fuel;
@@ -1955,20 +1927,18 @@ function buildNotesText(p){
   }
   put('Sprinkler system present', f(p.exterior.sprinkler.present));
   put('Broadband Internet Available', f(p.broadband.present));
-  if(p.exterior.siteInfluences.length){
-    lines.push('');
-    lines.push('### Site influences');
-    p.exterior.siteInfluences.forEach(entry=>{
-      put(entry.type || '(type not set)', [entry.proximity, entry.impact].filter(Boolean).join(' \u2014 '));
-    });
+  const si = p.exterior.siteInfluence;
+  if(si.present){
+    put('Site influence', [si.type, si.proximity, si.impact].filter(Boolean).join(' \u2014 ') || '(details not set)');
+  } else if(si.present===false){
+    put('Site influence', 'None notable');
   }
-  if(p.exterior.views.length){
-    lines.push('');
-    lines.push('### View');
-    p.exterior.views.forEach(entry=>{
-      const primaryBit = entry.primary===true ? 'Primary' : (entry.primary===false ? 'Not primary' : null);
-      put(entry.type || '(type not set)', [entry.range, primaryBit, entry.impact].filter(Boolean).join(' \u2014 '));
-    });
+  const vw = p.exterior.view;
+  if(vw.present){
+    const primaryBit = vw.primary===true ? 'Primary' : (vw.primary===false ? 'Not primary' : null);
+    put('View', [vw.type, vw.range, primaryBit, vw.impact].filter(Boolean).join(' \u2014 ') || '(details not set)');
+  } else if(vw.present===false){
+    put('View', 'None notable');
   }
   put('Site/exterior notes', p.exterior.notes);
   lines.push('');
@@ -2034,8 +2004,9 @@ function collectPhotoFiles(p){
   if(p.exterior.carport.present) addAll(p.exterior.carport.photos, 'Carport');
   if(p.exterior.alley.present) addAll(p.exterior.alley.photos, 'Alley');
   if(p.exterior.sprinkler.present) addAll(p.exterior.sprinkler.photos, 'Sprinkler system');
-  p.exterior.siteInfluences.forEach((entry,i)=> addAll(entry.photos, 'Site influence ' + (i+1) + ' - ' + (entry.type||'unspecified')));
-  p.exterior.views.forEach((entry,i)=> addAll(entry.photos, 'View ' + (i+1) + ' - ' + (entry.type||'unspecified')));
+  if(p.exterior.siteInfluence.present) addAll(p.exterior.siteInfluence.photos, 'Site influence');
+  if(p.exterior.view.present) addAll(p.exterior.view.photos, 'View');
+  addAll(p.exterior.additionalPhotos, 'Exterior - additional');
   addAll(p.generalNotesPhotos, 'General notes');
   allTabLevels(p).forEach(lvl=>{
     if(lvl.kind==='mechanical'){
