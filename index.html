@@ -1537,7 +1537,7 @@ function renderRooms(){
 
   const roomCardHTML = (r, idx)=>{
     const roomCategory = roomNameCategory(r.name);
-    const roomComplete = !!(r.flooringType && r.ceilingHeight && r.ceilingStyle && r.condition);
+    const roomComplete = !!(r.flooringType && r.ceilingHeight && r.ceilingStyle && r.condition && r.roomPhotos.length>0);
     const showOtherBox = (roomCategory === 'Other') || (r.name !== roomCategory);
     const nameOpts = ROOM_NAME_OPTIONS.map(n=>`<option value="${n}" ${n===roomCategory?'selected':''}>${n}</option>`).join('');
     const ceilChips = CEILING_HEIGHT_OPTIONS.map(v=>`<button class="chip ${r.ceilingHeight===v?'selected':''}" data-ceil="${r.id}" data-ceilval="${v}">${v}</button>`).join('');
