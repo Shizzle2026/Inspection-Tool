@@ -986,12 +986,13 @@ function renderPropertyHome(){
   renderExterior();
 }
 /* ---------- Photo tile helper ---------- */
-function photoTileHTML(key, label, photos){
+function photoTileHTML(key, label, photos, standalone){
   const thumbs = (photos||[]).map((ph,i)=>`
     <div class="thumb"><img src="${ph.src}" data-key="${key}" data-idx="${i}" onclick="openPhotoViewer(this)"><button class="del" data-delkey="${key}" data-delidx="${i}">&times;</button></div>
   `).join('');
+  const cc = standalone ? ((photos||[]).length>0 ? 'cc-complete' : 'cc-incomplete') : '';
   return `
-    <div class="card">
+    <div class="card ${cc}">
       <div class="row">
         <div><p class="label">${label}</p><p class="sub">${(photos||[]).length} photo${(photos||[]).length===1?'':'s'}</p></div>
         <label class="btn btn-accent btn-sm" style="cursor:pointer;">Add
@@ -1286,9 +1287,9 @@ function viewCardHTML(vw){
 function renderExterior(){
   const p = findProp(currentPropId);
   const app = document.getElementById('app');
-  const tilesFront = EXTERIOR_TILES_FRONT.map(([k,label])=>photoTileHTML(k,label,p.exterior.photos[k])).join('');
-  const tilesStreet = EXTERIOR_TILES_STREET.map(([k,label])=>photoTileHTML(k,label,p.exterior.photos[k])).join('');
-  const tilesRear = EXTERIOR_TILES_REAR.map(([k,label])=>photoTileHTML(k,label,p.exterior.photos[k])).join('');
+  const tilesFront = EXTERIOR_TILES_FRONT.map(([k,label])=>photoTileHTML(k,label,p.exterior.photos[k],true)).join('');
+  const tilesStreet = EXTERIOR_TILES_STREET.map(([k,label])=>photoTileHTML(k,label,p.exterior.photos[k],true)).join('');
+  const tilesRear = EXTERIOR_TILES_REAR.map(([k,label])=>photoTileHTML(k,label,p.exterior.photos[k],true)).join('');
   const componentsHTML = EXTERIOR_COMPONENTS.map(([key,label,opts,typeFieldLabel])=>componentCardHTML(key,label,opts,p.exterior.components[key],typeFieldLabel)).join('');
   const heightOptions = ['0-1 ft','1-2 ft','2-3 ft','3-4 ft','4+ ft'];
   const heightChips = heightOptions.map(v=>`<button class="chip ${p.exterior.entranceHeight===v?'selected':''}" data-height="${v}">${v}</button>`).join('');
@@ -1307,7 +1308,7 @@ function renderExterior(){
       ${alleyCardHTML(p.exterior.alley)}
       ${sprinklerCardHTML(p.exterior.sprinkler)}
       ${featureCardHTML('porch','Porch', p.exterior.features.porch, ...EXTERIOR_FEATURES.find(f=>f[0]==='porch').slice(2))}
-      <div class="card">
+      <div class="card ${p.exterior.entranceHeight ? 'cc-complete' : 'cc-incomplete'}">
         <p class="label">Entrance height above grade</p>
         <p class="sub">UAD 3.6 field &mdash; approximate range is fine</p>
         <div class="chiprow">${heightChips}</div>
@@ -1330,7 +1331,7 @@ function renderExterior(){
         <p class="label">Site / exterior notes</p>
         <textarea id="extNotes" placeholder="Anything else worth flagging...">${p.exterior.notes||''}</textarea>
       </div>
-      ${photoTileHTML('exteriorAdditional','Additional photos', p.exterior.additionalPhotos)}
+      ${photoTileHTML('exteriorAdditional','Additional photos', p.exterior.additionalPhotos, true)}
     </div>
   `;
   wirePropertyChrome(app, p);
@@ -1610,7 +1611,8 @@ function renderRooms(){
     const isFurnace = lbl==='furnace';
     let complete = !!(item.label||'').trim();
     if(isFurnace) complete = complete && !!item.fuelType;
-    if(isWaterHeater) complete = complete && !!item.fuelType && item.strapped!==null;
+    else if(isWaterHeater) complete = complete && !!item.fuelType && item.strapped!==null;
+    else complete = complete && item.photos.length>0; // no other field exists to confirm, so the photo is the signal
     return `
     <div class="mechcard ${complete ? 'cc-complete' : 'cc-incomplete'}" data-mechid="${item.id}">
       <div class="row">
@@ -1851,7 +1853,7 @@ function renderNotes(){
     ${propertyChromeHTML(p)}
     <div class="content">
       <div class="card"><textarea id="genNotes" style="min-height:220px;" placeholder="Anything that doesn't fit elsewhere...">${p.generalNotes||''}</textarea></div>
-      ${photoTileHTML('generalNotesPhotos','Photos that don\u2019t belong anywhere else', p.generalNotesPhotos)}
+      ${photoTileHTML('generalNotesPhotos','Photos that don\u2019t belong anywhere else', p.generalNotesPhotos, true)}
     </div>
   `;
   wirePropertyChrome(app, p);
