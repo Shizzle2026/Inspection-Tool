@@ -25,6 +25,8 @@
   .propheader-top .row{align-items:flex-start;}
   .tabbar{position:sticky;top:0;z-index:20;background:var(--bg);display:flex;flex-wrap:wrap;gap:calc(8px * var(--tab-scale, 1));padding:calc(10px * var(--tab-scale, 1)) 12px;border-top:2px solid var(--line);border-bottom:2px solid var(--line);}
   .tabbtn{font-size:calc(15px * var(--tab-scale, 1));font-weight:700;padding:calc(10px * var(--tab-scale, 1)) calc(14px * var(--tab-scale, 1));border-radius:10px;border:2px solid var(--line);background:var(--bg2);color:var(--text);min-height:calc(44px * var(--tab-scale, 1));}
+  .tabbtn.tab-incomplete{border-color:var(--danger);}
+  .tabbtn.tab-complete{border-color:var(--good);}
   .tabbtn.active{background:var(--accent);border-color:var(--accent);color:#fff;}
   .tabbtn.addtab{background:var(--accent-bg);border-color:var(--accent);color:var(--accent);}
   .cc-incomplete{background:#fdecea !important;}
@@ -893,12 +895,58 @@ function tabList(p){
     {id:'notes', label:'Notes'}
   ];
 }
+/* ---------- Tab-level completeness (mirrors each card's own rule exactly) ---------- */
+function isMechItemComplete(item){
+  const lbl = (item.label||'').trim().toLowerCase();
+  let c = !!(item.label||'').trim();
+  if(lbl==='furnace') c = c && !!item.fuelType;
+  else if(lbl==='water heater') c = c && !!item.fuelType && item.strapped!==null;
+  else c = c && item.photos.length>0;
+  return c;
+}
+function isExteriorTabComplete(p){
+  const e = p.exterior;
+  return EXTERIOR_TILES.every(([k])=> (e.photos[k]||[]).length>0)
+    && (e.driveway.present===false || (e.driveway.present===true && e.driveway.materials.length>0 && !!e.driveway.capacity))
+    && (e.garage.present===false || (e.garage.present===true && !!e.garage.attachment && !!e.garage.capacity))
+    && (e.carport.present===false || (e.carport.present===true && !!e.carport.attachment && !!e.carport.capacity))
+    && (e.alley.present===false || (e.alley.present===true && e.alley.surface.length>0))
+    && (e.fence.front.present===false || (e.fence.front.present===true && e.fence.front.materials.length>0))
+    && (e.fence.rear.present===false || (e.fence.rear.present===true && e.fence.rear.materials.length>0))
+    && (e.sprinkler.present !== null)
+    && EXTERIOR_FEATURES.every(([key])=> (e.features[key].present===false || (e.features[key].present===true && !!e.features[key].type && e.features[key].materials.length>0)))
+    && !!e.entranceHeight
+    && (e.foundation.materials.length>0 && e.foundation.types.length>0 && !!e.foundation.condition)
+    && EXTERIOR_COMPONENTS.every(([key])=> (e.components[key].types.length>0 && !!e.components[key].condition))
+    && (e.siteInfluence.present===false || (e.siteInfluence.present===true && !!e.siteInfluence.proximity && !!e.siteInfluence.impact))
+    && (e.view.present===false || (e.view.present===true && !!e.view.range && e.view.primary!==null && !!e.view.impact))
+    && (p.exterior.outbuildingPresent !== null);
+}
+function isLevelTabComplete(p, lvl){
+  if(lvl.kind==='mechanical'){
+    return lvl.rooms.length>0 && lvl.rooms.every(isMechItemComplete);
+  }
+  const roomsOk = lvl.rooms.length>0 && lvl.rooms.every(r=> !!(r.flooringType && r.ceilingHeight && r.ceilingStyle && r.condition && r.roomPhotos.length>0));
+  const safetyOk = lvl.safety.smoke.present!==null && lvl.safety.co.present!==null && lvl.safety.combo.present!==null;
+  const broadbandOk = (lvl.label==='L1') ? (p.broadband.present!==null) : true;
+  return roomsOk && safetyOk && broadbandOk;
+}
+
 function propertyChromeHTML(p){
   const metaBits = [];
   if(p.appointment) metaBits.push(formatAppt(p.appointment));
   if(p.occupancy) metaBits.push(p.occupancy);
   if(p.fileNumber) metaBits.push('File #' + p.fileNumber);
-  const tabsHtml = tabList(p).map(t=>`<button class="tabbtn ${currentTab===t.id?'active':''}" data-gotab="${t.id}">${t.label}</button>`).join('')
+  const tabsHtml = tabList(p).map(t=>{
+    let statusClass = '';
+    if(t.id === 'exterior'){
+      statusClass = isExteriorTabComplete(p) ? 'tab-complete' : 'tab-incomplete';
+    } else if(t.id !== 'notes'){
+      const lvl = p.levels.find(l=>l.id===t.id);
+      if(lvl) statusClass = isLevelTabComplete(p, lvl) ? 'tab-complete' : 'tab-incomplete';
+    }
+    return `<button class="tabbtn ${currentTab===t.id?'active':''} ${statusClass}" data-gotab="${t.id}">${t.label}</button>`;
+  }).join('')
     + `<button class="tabbtn addtab" id="addLevelTabBtn">+ Level</button>`;
   return `
     <div class="propheader-top">
