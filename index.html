@@ -72,7 +72,9 @@
   .roomcard-collapsed .rc-sum{flex:1;font-size:15px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .roomcard-collapsed .rc-chev{font-size:16px;color:var(--sub);}
   .sketchthumbs .thumb{width:150px;height:150px;}
-  .phototile{margin-bottom:0;padding:10px 12px;}
+  :root{--tilew:clamp(320px,32vw,400px);}
+  .phototile{margin-bottom:0;padding:10px 12px;width:var(--tilew);max-width:100%;margin-left:auto;}
+  .tile-stack .phototile{width:100%;margin-left:0;}
   .phototile .tile-row{display:flex;align-items:center;gap:12px;}
   .phototile .tile-label{flex:0 0 auto;max-width:46%;}
   .phototile .tile-label .label{font-size:17px;line-height:1.2;}
@@ -81,7 +83,7 @@
   .phototile .tile-thumbs .thumb{flex:0 0 auto;width:56px;height:56px;}
   .phototile .tile-add{flex:0 0 auto;margin-left:auto;cursor:pointer;}
   .card > .phototile{margin-top:10px;}
-  .tile-stack{flex:0 1 34%;min-width:320px;display:flex;flex-direction:column;gap:8px;margin-left:auto;}
+  .tile-stack{flex:0 1 var(--tilew);width:var(--tilew);max-width:100%;display:flex;flex-direction:column;gap:8px;margin-left:auto;}
   .content > .phototile{margin-bottom:14px;}
   .photostrip{display:flex;align-items:center;gap:8px;}
   .photostrip .ps-add{flex:0 0 auto;white-space:nowrap;cursor:pointer;}
@@ -1967,7 +1969,7 @@ function renderRooms(){
         ${showOtherBox ? `<div style="flex:1 1 200px;">
           <input type="text" data-roomcustom="${r.id}" value="${r.name==='Other'?'':r.name}" placeholder="Type room name" style="width:100%;font-weight:700;font-size:19px;color:#0b5fb0;">
         </div>` : ''}
-        <div style="flex:2 1 340px;">
+        <div style="flex:0 1 auto;margin-left:auto;">
           ${photoTileHTML('room_'+r.id, 'Room photo', r.roomPhotos)}
         </div>
       </div>
@@ -1979,7 +1981,7 @@ function renderRooms(){
           <p class="fieldhead">Flooring condition</p>
           <div class="cond-grid">${condChips}</div>
         </div>
-        <div style="flex:3 1 330px;">
+        <div style="flex:0 1 auto;margin-left:auto;">
           ${photoTileHTML('floor_'+r.id, 'Flooring photo', r.flooringPhotos)}
         </div>
       </div>
@@ -2018,11 +2020,11 @@ function renderRooms(){
     else complete = complete && item.photos.length>0; // no other field exists to confirm, so the photo is the signal
     return `
     <div class="mechcard ${complete ? 'cc-complete' : 'cc-incomplete'}" data-mechid="${item.id}">
-      <div class="row">
-        <input type="text" data-mechlabel="${item.id}" value="${item.label}" placeholder="Label this photo (e.g. Water softener)">
+      <div class="row" style="align-items:center;flex-wrap:wrap;gap:12px;">
+        <input type="text" data-mechlabel="${item.id}" value="${item.label}" placeholder="Label (e.g. Water softener)" style="flex:1 1 200px;min-width:0;font-weight:700;font-size:19px;color:#0b5fb0;">
+        <div style="flex:0 1 auto;margin-left:auto;">${photoTileHTML('mech_'+item.id, 'Photo', item.photos)}</div>
         <button class="btn btn-sm" data-delmech="${item.id}">Remove</button>
       </div>
-      ${photoTileHTML('mech_'+item.id, item.label || 'Photo', item.photos)}
       ${isFurnace ? `
         <p class="fieldhead">Fuel type</p>
         <div class="chiprow">
