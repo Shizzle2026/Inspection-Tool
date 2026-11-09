@@ -163,7 +163,7 @@ const FOUNDATION_TYPES = ['Slab','Partial basement','Full basement','Crawlspace'
 // Fannie Mae enumeration list (I couldn't confirm the literal UAD 3.6 wording).
 // Easy to relabel here once you compare against AIVRE's actual dropdowns.
 const EXTERIOR_COMPONENTS = [
-  ['sidingTrim','Siding and trim', ['Wood','Vinyl','Fiber cement','Metal'], 'Material'],
+  ['sidingTrim','Siding and trim', ['Wood','Vinyl','Fiber cement','Metal','Brick','Asbestos'], 'Material'],
   ['windows','Windows', ['Wood frame','Metal frame','Vinyl frame','Single pane','Double pane','Multi pane','Other']],
   ['roof','Roof', ['Composition','Metal','Tile','Slate','Shake','Flat / membrane','Other'], 'Material'],
 ];
@@ -173,6 +173,7 @@ const CEILING_STYLE_OPTIONS = ['Flat','Vaulted'];
 const CONDITION_OPTIONS = ['New / like new','Typical wear and tear','Damaged and functional','Damaged and non-functional'];
 const FLOORING_OPTIONS = ['Carpet','Wood','Vinyl','LVP','Tile','Laminate','Concrete','Other'];
 const UPDATE_STATUS_OPTIONS = ['Not updated','Partially updated','Fully updated'];
+const ROOF_AGE_OPTIONS = ['Less than 1 year','1 to 10 years','10 to 20 years','20 or more years'];
 const UPDATED_TIMEFRAMES = ['Less than 1 year','1 to 5 years','5 to 10 years','10 or more years'];
 const FENCE_MATERIALS = ['Wood','Metal','Vinyl','Chain link'];
 const FURNACE_FUELS = ['Gas','Electric','Oil','Propane'];
@@ -391,18 +392,40 @@ const ADDRESS_SUFFIX_ABBR = {
   path:'Path', pike:'Pike', walk:'Walk'
 };
 function shortenAddressForFilename(address){
-  // Trims to just the street-address portion (drops city/state/zip after the
-  // first comma) and abbreviates directions and street suffixes, so filenames
-  // stay short and easy to work with - e.g. "2328 West Euclid Avenue, Spokane,
-  // WA 99205" -> "2328 W Euclid Ave"
+  // Trims an address down to just the street portion and abbreviates
+  // directions/suffixes, e.g. "2328 West Euclid Avenue, Spokane, WA 99205"
+  // -> "2328 W Euclid Ave". Works even when the address was typed by hand
+  // with no commas at all.
   if(!address) return address;
-  const streetPart = address.split(',')[0].trim();
+  let streetPart;
+  if(address.indexOf(',') !== -1){
+    streetPart = address.split(',')[0].trim();
+  } else {
+    // No commas: drop a trailing "ST 12345" / "12345", then cut after the street suffix word.
+    let t = address.trim().replace(/\s+[A-Za-z]{2}\s+\d{5}(-\d{4})?$/, '').replace(/\s+\d{5}(-\d{4})?$/, '');
+    const toks = t.split(/\s+/);
+    const suffixWords = new Set([...Object.keys(ADDRESS_SUFFIX_ABBR), ...Object.values(ADDRESS_SUFFIX_ABBR).map(v=>v.toLowerCase())]);
+    let cut = -1;
+    for(let i=2; i<toks.length; i++){
+      if(suffixWords.has(toks[i].replace(/[.,]/g,'').toLowerCase())){ cut = i; break; }
+    }
+    if(cut !== -1){
+      // keep a trailing directional right after the suffix (e.g. "Main St NE")
+      const nxt = toks[cut+1] ? toks[cut+1].replace(/[.,]/g,'').toLowerCase() : '';
+      const dirAbbrs = Object.values(ADDRESS_DIRECTION_ABBR).map(v=>v.toLowerCase());
+      if(nxt && (ADDRESS_DIRECTION_ABBR[nxt] || dirAbbrs.includes(nxt)) && toks.length > cut+2) cut++;
+      else if(nxt && (ADDRESS_DIRECTION_ABBR[nxt] || dirAbbrs.includes(nxt)) && toks.length === cut+2) cut++;
+      streetPart = toks.slice(0, cut+1).join(' ');
+    } else {
+      streetPart = t;
+    }
+  }
   const words = streetPart.split(/\s+/);
+  const sufIdx = (()=>{ for(let i=words.length-1;i>=1;i--){ if(ADDRESS_SUFFIX_ABBR[words[i].replace(/[.,]/g,'').toLowerCase()]) return i; } return -1; })();
   const out = words.map((w, i)=>{
-    const bare = w.replace(/[.,]/g,'');
-    const lower = bare.toLowerCase();
+    const lower = w.replace(/[.,]/g,'').toLowerCase();
     if(ADDRESS_DIRECTION_ABBR[lower]) return ADDRESS_DIRECTION_ABBR[lower];
-    if(i === words.length-1 && ADDRESS_SUFFIX_ABBR[lower]) return ADDRESS_SUFFIX_ABBR[lower];
+    if(i === sufIdx && ADDRESS_SUFFIX_ABBR[lower]) return ADDRESS_SUFFIX_ABBR[lower];
     return w;
   });
   return out.join(' ');
@@ -496,25 +519,27 @@ function openPhotoViewer(imgEl){
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:200;padding:20px;gap:16px;';
   overlay.innerHTML = `
     <img src="${src}" style="max-width:100%;max-height:70vh;border-radius:8px;object-fit:contain;">
-    <div style="display:flex;gap:12px;">
-      <button class="btn" id="viewerClose">Close</button>
-      <button class="btn" id="viewerDelete" style="background:var(--danger);border-color:var(--danger);color:#fff;">Delete photo</button>
+    <div style="display:flex;gap:20px;align-items:center;">
+      <button class="btn btn-accent" id="viewerClose" style="min-width:220px;min-height:72px;font-size:24px;">Close</button>
+      <button class="btn btn-sm" id="viewerDelete" style="background:transparent;border-color:var(--danger);color:#ff8a80;">Delete</button>
     </div>
   `;
   overlay.onclick = (e)=>{ if(e.target===overlay) overlay.remove(); };
   document.body.appendChild(overlay);
   overlay.querySelector('#viewerClose').onclick = ()=>overlay.remove();
   overlay.querySelector('#viewerDelete').onclick = ()=>{
-    overlay.remove();
-    const delBtn = tileCard.querySelector(`[data-delkey="${key}"][data-delidx="${idx}"]`);
-    if(delBtn) delBtn.click();
+    askConfirm('Delete this photo?', 'This cannot be undone.', ()=>{
+      overlay.remove();
+      const delBtn = tileCard.querySelector(`[data-delkey="${key}"][data-delidx="${idx}"]`);
+      if(delBtn){ delBtn.dataset.skipconfirm = '1'; delBtn.click(); }
+    });
   };
 }
 
 /* ---------- Custom modal dialogs (native prompt/confirm aren't reliable in every embedded browser) ---------- */
 function showModal(innerHTML){
   const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:300;padding:20px;';
   overlay.innerHTML = `<div class="card" style="max-width:400px;width:100%;margin:0;">${innerHTML}</div>`;
   document.body.appendChild(overlay);
   return overlay;
@@ -907,26 +932,26 @@ function isMechItemComplete(item){
 function isExteriorTabComplete(p){
   const e = p.exterior;
   return EXTERIOR_TILES.every(([k])=> (e.photos[k]||[]).length>0)
-    && (e.driveway.present===false || (e.driveway.present===true && e.driveway.materials.length>0 && !!e.driveway.capacity))
-    && (e.garage.present===false || (e.garage.present===true && !!e.garage.attachment && !!e.garage.capacity))
-    && (e.carport.present===false || (e.carport.present===true && !!e.carport.attachment && !!e.carport.capacity))
-    && (e.alley.present===false || (e.alley.present===true && e.alley.surface.length>0))
-    && (e.fence.front.present===false || (e.fence.front.present===true && e.fence.front.materials.length>0))
-    && (e.fence.rear.present===false || (e.fence.rear.present===true && e.fence.rear.materials.length>0))
-    && (e.sprinkler.present !== null)
-    && EXTERIOR_FEATURES.every(([key])=> (e.features[key].present===false || (e.features[key].present===true && !!e.features[key].type && e.features[key].materials.length>0)))
+    && (e.driveway.present===false || (e.driveway.present===true && e.driveway.materials.length>0 && !!e.driveway.capacity && e.driveway.photos.length>0))
+    && (e.garage.present===false || (e.garage.present===true && !!e.garage.attachment && !!e.garage.capacity && e.garage.exteriorPhotos.length>0 && e.garage.interiorPhotos.length>0))
+    && (e.carport.present===false || (e.carport.present===true && !!e.carport.attachment && !!e.carport.capacity && e.carport.photos.length>0))
+    && (e.alley.present===false || (e.alley.present===true && e.alley.surface.length>0 && e.alley.photos.length>0))
+    && (e.fence.front.present===false || (e.fence.front.present===true && e.fence.front.materials.length>0 && e.fence.front.photos.length>0))
+    && (e.fence.rear.present===false || (e.fence.rear.present===true && e.fence.rear.materials.length>0 && e.fence.rear.photos.length>0))
+    && (e.sprinkler.present===false || (e.sprinkler.present===true && e.sprinkler.photos.length>0))
+    && EXTERIOR_FEATURES.every(([key])=> (e.features[key].present===false || (e.features[key].present===true && !!e.features[key].type && e.features[key].materials.length>0 && e.features[key].photos.length>0)))
     && !!e.entranceHeight
     && (e.foundation.materials.length>0 && e.foundation.types.length>0 && !!e.foundation.condition)
-    && EXTERIOR_COMPONENTS.every(([key])=> (e.components[key].types.length>0 && !!e.components[key].condition))
-    && (e.siteInfluence.present===false || (e.siteInfluence.present===true && !!e.siteInfluence.proximity && !!e.siteInfluence.impact))
-    && (e.view.present===false || (e.view.present===true && !!e.view.range && e.view.primary!==null && !!e.view.impact))
-    && (p.exterior.outbuildingPresent !== null);
+    && EXTERIOR_COMPONENTS.every(([key])=> (e.components[key].types.length>0 && !!e.components[key].condition && (key!=='roof' || !!e.components[key].ageRange)))
+    && (e.siteInfluence.present===false || (e.siteInfluence.present===true && !!e.siteInfluence.proximity && !!e.siteInfluence.impact && e.siteInfluence.photos.length>0))
+    && (e.view.present===false || (e.view.present===true && !!e.view.range && e.view.primary!==null && !!e.view.impact && e.view.photos.length>0))
+    && (p.exterior.outbuildingPresent===false || (p.exterior.outbuildingPresent===true && p.exterior.outbuildingPhotos.length>0));
 }
 function isLevelTabComplete(p, lvl){
   if(lvl.kind==='mechanical'){
     return lvl.rooms.length>0 && lvl.rooms.every(isMechItemComplete);
   }
-  const roomsOk = lvl.rooms.length>0 && lvl.rooms.every(r=> !!(r.flooringType && r.ceilingHeight && r.ceilingStyle && r.condition && r.roomPhotos.length>0));
+  const roomsOk = lvl.rooms.length>0 && lvl.rooms.every(r=> !!(r.flooringType && r.ceilingHeight && r.ceilingStyle && r.condition && r.roomPhotos.length>0 && r.flooringPhotos.length>0));
   const safetyOk = lvl.safety.smoke.present!==null && lvl.safety.co.present!==null && lvl.safety.combo.present!==null;
   const broadbandOk = (lvl.label==='L1') ? (p.broadband.present!==null) : true;
   return roomsOk && safetyOk && broadbandOk;
@@ -1065,7 +1090,11 @@ function wirePhotoTile(container, key, getArr, rerender){
     };
   }
   container.querySelectorAll(`[data-delkey="${key}"]`).forEach(btn=>{
-    btn.onclick = ()=>{ getArr().splice(parseInt(btn.dataset.delidx,10),1); saveCurrent(); rerender(); };
+    btn.onclick = ()=>{
+      const doDelete = ()=>{ getArr().splice(parseInt(btn.dataset.delidx,10),1); saveCurrent(); rerender(); };
+      if(btn.dataset.skipconfirm==='1'){ delete btn.dataset.skipconfirm; doDelete(); }
+      else askConfirm('Delete this photo?', 'This cannot be undone.', doDelete);
+    };
   });
 }
 
@@ -1073,7 +1102,13 @@ function wirePhotoTile(container, key, getArr, rerender){
 function componentCardHTML(key,label,typeOptions,comp,typeFieldLabel){
   const typeChips = typeOptions.map(v=>`<button class="chip ${comp.types.includes(v)?'selected':''}" data-comptype="${key}" data-val="${v}">${v}</button>`).join('');
   const condChips = CONDITION_OPTIONS.map(v=>`<button class="chip ${comp.condition===v?'selected':''}" data-compcond="${key}" data-val="${v}">${v}</button>`).join('');
-  const complete = comp.types.length>0 && comp.condition;
+  const isRoof = (key==='roof');
+  const complete = comp.types.length>0 && comp.condition && (!isRoof || comp.ageRange);
+  const ageBlock = isRoof ? `
+      <p class="fieldhead">Estimated age</p>
+      <div class="chiprow">${ROOF_AGE_OPTIONS.map(v=>`<button class="chip ${comp.ageRange===v?'selected':''}" data-roofage="${v}">${v}</button>`).join('')}</div>
+      <input type="text" data-roofactual value="${(comp.actualAge||'').replace(/"/g,'&quot;')}" placeholder="Actual age if known (optional), e.g. 12 years per homeowner" style="margin-top:8px;">
+  ` : '';
   return `
     <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <p class="label">${label}</p>
@@ -1082,6 +1117,7 @@ function componentCardHTML(key,label,typeOptions,comp,typeFieldLabel){
       <div class="chiprow">${typeChips}</div>
       <p class="fieldhead">Condition</p>
       <div class="chiprow">${condChips}</div>
+      ${ageBlock}
     </div>`;
 }
 
@@ -1106,7 +1142,7 @@ function foundationCardHTML(f){
 
 function fenceSideHTML(side, label, data){
   const matChips = FENCE_MATERIALS.map(v=>`<button class="chip ${data.materials.includes(v)?'selected':''}" data-fencemat="${side}" data-val="${v}">${v}</button>`).join('');
-  const complete = data.present===false || (data.present===true && data.materials.length>0);
+  const complete = data.present===false || (data.present===true && data.materials.length>0 && data.photos.length>0);
   return `
     <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <div class="row" style="align-items:flex-start;">
@@ -1130,7 +1166,7 @@ function fenceSideHTML(side, label, data){
 function featureCardHTML(key, label, data, typeOptions, materialOptions){
   const typeChips = typeOptions.map(v=>`<button class="chip ${data.type===v?'selected':''}" data-feattype="${key}" data-val="${v}">${v}</button>`).join('');
   const matChips = materialOptions.map(v=>`<button class="chip ${data.materials.includes(v)?'selected':''}" data-featmat="${key}" data-val="${v}">${v}</button>`).join('');
-  const complete = data.present===false || (data.present===true && data.type && data.materials.length>0);
+  const complete = data.present===false || (data.present===true && data.type && data.materials.length>0 && data.photos.length>0);
   return `
     <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <div class="row" style="align-items:flex-start;">
@@ -1156,7 +1192,7 @@ function featureCardHTML(key, label, data, typeOptions, materialOptions){
 function drivewayCardHTML(d){
   const matChips = DRIVEWAY_MATERIALS.map(v=>`<button class="chip ${d.materials.includes(v)?'selected':''}" data-drivemat="${v}">${v}</button>`).join('');
   const capChips = DRIVEWAY_CAPACITIES.map(v=>`<button class="chip ${d.capacity===v?'selected':''}" data-drivecap="${v}">${v} car</button>`).join('');
-  const complete = d.present===false || (d.present===true && d.materials.length>0 && d.capacity);
+  const complete = d.present===false || (d.present===true && d.materials.length>0 && d.capacity && d.photos.length>0);
   return `
     <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <div class="row" style="align-items:flex-start;">
@@ -1182,7 +1218,7 @@ function drivewayCardHTML(d){
 function garageCardHTML(g){
   const capChips = GARAGE_CAPACITIES.map(v=>`<button class="chip ${g.capacity===v?'selected':''}" data-garagecap="${v}">${v} car</button>`).join('');
   const attChips = GARAGE_ATTACHMENTS.map(v=>`<button class="chip ${g.attachment===v?'selected':''}" data-garageatt="${v}">${v}</button>`).join('');
-  const complete = g.present===false || (g.present===true && g.attachment && g.capacity);
+  const complete = g.present===false || (g.present===true && g.attachment && g.capacity && g.exteriorPhotos.length>0 && g.interiorPhotos.length>0);
   return `
     <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <div class="row" style="align-items:flex-start;">
@@ -1212,7 +1248,7 @@ function garageCardHTML(g){
 function carportCardHTML(c){
   const capChips = CARPORT_CAPACITIES.map(v=>`<button class="chip ${c.capacity===v?'selected':''}" data-carportcap="${v}">${v} car</button>`).join('');
   const attChips = CARPORT_ATTACHMENTS.map(v=>`<button class="chip ${c.attachment===v?'selected':''}" data-carportatt="${v}">${v}</button>`).join('');
-  const complete = c.present===false || (c.present===true && c.attachment && c.capacity);
+  const complete = c.present===false || (c.present===true && c.attachment && c.capacity && c.photos.length>0);
   return `
     <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <div class="row" style="align-items:flex-start;">
@@ -1236,7 +1272,7 @@ function carportCardHTML(c){
 
 function alleyCardHTML(a){
   const surfChips = ALLEY_SURFACES.map(v=>`<button class="chip ${a.surface.includes(v)?'selected':''}" data-alleysurf="${v}">${v}</button>`).join('');
-  const complete = a.present===false || (a.present===true && a.surface.length>0);
+  const complete = a.present===false || (a.present===true && a.surface.length>0 && a.photos.length>0);
   return `
     <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <div class="row" style="align-items:flex-start;">
@@ -1258,7 +1294,7 @@ function alleyCardHTML(a){
 }
 
 function sprinklerCardHTML(s){
-  const complete = s.present !== null;
+  const complete = s.present===false || (s.present===true && s.photos.length>0);
   return `
     <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <div class="row" style="align-items:flex-start;">
@@ -1277,7 +1313,7 @@ function sprinklerCardHTML(s){
 function siteInfluenceCardHTML(si){
   const proxChips = PROXIMITY_OPTIONS.map(v=>`<button class="chip ${si.proximity===v?'selected':''}" data-siprox="${v}">${v}</button>`).join('');
   const impChips = IMPACT_OPTIONS.map(v=>`<button class="chip ${si.impact===v?'selected':''}" data-siimpact="${v}">${v}</button>`).join('');
-  const complete = si.present===false || (si.present===true && si.proximity && si.impact);
+  const complete = si.present===false || (si.present===true && si.proximity && si.impact && si.photos.length>0);
   return `
     <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <div class="row" style="align-items:flex-start;">
@@ -1303,7 +1339,7 @@ function siteInfluenceCardHTML(si){
 function viewCardHTML(vw){
   const rangeChips = VIEW_RANGE_OPTIONS.map(v=>`<button class="chip ${vw.range===v?'selected':''}" data-vwrange="${v}">${v}</button>`).join('');
   const impChips = IMPACT_OPTIONS.map(v=>`<button class="chip ${vw.impact===v?'selected':''}" data-vwimpact="${v}">${v}</button>`).join('');
-  const complete = vw.present===false || (vw.present===true && vw.range && vw.primary!==null && vw.impact);
+  const complete = vw.present===false || (vw.present===true && vw.range && vw.primary!==null && vw.impact && vw.photos.length>0);
   return `
     <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <div class="row" style="align-items:flex-start;">
@@ -1367,7 +1403,7 @@ function renderExterior(){
       ${componentsHTML}
       ${siteInfluenceCardHTML(p.exterior.siteInfluence)}
       ${viewCardHTML(p.exterior.view)}
-      <div class="card ${p.exterior.outbuildingPresent!==null ? 'cc-complete' : 'cc-incomplete'}">
+      <div class="card ${(p.exterior.outbuildingPresent===false || (p.exterior.outbuildingPresent===true && p.exterior.outbuildingPhotos.length>0)) ? 'cc-complete' : 'cc-incomplete'}">
         <div class="row"><p class="label">Outbuilding present?</p></div>
         <div class="chiprow">
           <button class="chip ${p.exterior.outbuildingPresent===true?'selected':''}" data-ob="yes">Yes</button>
@@ -1533,6 +1569,12 @@ function renderExterior(){
       ()=>{ comp.types.splice(comp.types.indexOf(v),1); saveCurrent(); renderExterior(); }
     );
   });
+  app.querySelectorAll('[data-roofage]').forEach(btn=>{
+    const comp = p.exterior.components.roof;
+    bindSingleSelectTap(btn, ()=>comp.ageRange, btn.dataset.roofage, (v)=>{ comp.ageRange=v; saveCurrent(); renderExterior(); });
+  });
+  const roofActualInp = app.querySelector('[data-roofactual]');
+  if(roofActualInp) roofActualInp.onblur = ()=>{ p.exterior.components.roof.actualAge = roofActualInp.value; saveCurrent(); };
   app.querySelectorAll('[data-compcond]').forEach(btn=>{
     const comp = p.exterior.components[btn.dataset.compcond];
     bindSingleSelectTap(btn, ()=>comp.condition, btn.dataset.val, (v)=>{ comp.condition=v; saveCurrent(); renderExterior(); });
@@ -1585,7 +1627,7 @@ function renderRooms(){
 
   const roomCardHTML = (r, idx)=>{
     const roomCategory = roomNameCategory(r.name);
-    const roomComplete = !!(r.flooringType && r.ceilingHeight && r.ceilingStyle && r.condition && r.roomPhotos.length>0);
+    const roomComplete = !!(r.flooringType && r.ceilingHeight && r.ceilingStyle && r.condition && r.roomPhotos.length>0 && r.flooringPhotos.length>0);
     const showOtherBox = (roomCategory === 'Other') || (r.name !== roomCategory);
     const nameOpts = ROOM_NAME_OPTIONS.map(n=>`<option value="${n}" ${n===roomCategory?'selected':''}>${n}</option>`).join('');
     const ceilChips = CEILING_HEIGHT_OPTIONS.map(v=>`<button class="chip ${r.ceilingHeight===v?'selected':''}" data-ceil="${r.id}" data-ceilval="${v}">${v}</button>`).join('');
@@ -1741,6 +1783,11 @@ function renderRooms(){
       if(key==='combo'){
         if(v===true){ lvl.safety.smoke.present = true; lvl.safety.co.present = true; }
         if(v===null){ lvl.safety.smoke.present = null; lvl.safety.co.present = null; }
+      } else if((key==='smoke' || key==='co') && v!==true && lvl.safety.combo.present===true){
+        // Combo=Yes only makes sense if both of these are true - if either one
+        // stops being Yes (cleared, or explicitly set to No), Combo's answer
+        // is no longer accurate either.
+        lvl.safety.combo.present = null;
       }
       saveCurrent(); renderRooms();
     });
@@ -1932,6 +1979,7 @@ function buildNotesText(p){
     const c = p.exterior.components[key];
     const parts = [...c.types, c.condition].filter(Boolean);
     if(parts.length) put(label, parts.join(', '));
+    if(key==='roof' && (c.ageRange || c.actualAge)) put('Roof age', [c.ageRange, c.actualAge ? '(actual: ' + c.actualAge + ')' : null].filter(Boolean).join(' '));
   });
   put('Entrance height above grade', p.exterior.entranceHeight);
   put('Outbuilding present', f(p.exterior.outbuildingPresent));
