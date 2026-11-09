@@ -1112,11 +1112,19 @@ function tabList(p){
 function isRoomComplete(r){
   return !!(r.flooringType && r.ceilingHeight && r.ceilingStyle && r.condition && r.roomPhotos.length>0 && r.flooringPhotos.length>0);
 }
+function isSafetyComplete(lvl){
+  const sf = lvl.safety;
+  if(sf.smoke.present===null || sf.co.present===null || sf.combo.present===null) return false;
+  if(sf.combo.present===true) return sf.combo.photos.length>0;          // one photo of the combo unit covers Smoke and CO
+  if(sf.smoke.present===true && sf.smoke.photos.length===0) return false; // a Yes needs a photo of that detector
+  if(sf.co.present===true && sf.co.photos.length===0) return false;
+  return true;                                                            // a No needs no photo
+}
 function isMechItemComplete(item){
   const lbl = (item.label||'').trim().toLowerCase();
   let c = !!(item.label||'').trim();
-  if(lbl==='furnace') c = c && !!item.fuelType;
-  else if(lbl==='water heater') c = c && !!item.fuelType && item.strapped!==null;
+  if(lbl==='furnace') c = c && !!item.fuelType && item.photos.length>0;
+  else if(lbl==='water heater') c = c && !!item.fuelType && item.strapped!==null && item.photos.length>0;
   else c = c && item.photos.length>0;
   return c;
 }
@@ -1143,7 +1151,7 @@ function isLevelTabComplete(p, lvl){
     return lvl.rooms.length>0 && lvl.rooms.every(isMechItemComplete);
   }
   const roomsOk = lvl.rooms.length>0 && lvl.rooms.every(isRoomComplete);
-  const safetyOk = lvl.safety.smoke.present!==null && lvl.safety.co.present!==null && lvl.safety.combo.present!==null;
+  const safetyOk = isSafetyComplete(lvl);
   const broadbandOk = (lvl.label==='L1') ? (p.broadband.present!==null) : true;
   const bsmtOk = !isBasementLevel(lvl) || isBasementComplete(lvl.basement);
   return roomsOk && safetyOk && broadbandOk && bsmtOk;
@@ -2008,8 +2016,8 @@ function renderRooms(){
     const isWaterHeater = lbl==='water heater';
     const isFurnace = lbl==='furnace';
     let complete = !!(item.label||'').trim();
-    if(isFurnace) complete = complete && !!item.fuelType;
-    else if(isWaterHeater) complete = complete && !!item.fuelType && item.strapped!==null;
+    if(isFurnace) complete = complete && !!item.fuelType && item.photos.length>0;
+    else if(isWaterHeater) complete = complete && !!item.fuelType && item.strapped!==null && item.photos.length>0;
     else complete = complete && item.photos.length>0; // no other field exists to confirm, so the photo is the signal
     return `
     <div class="mechcard ${complete ? 'cc-complete' : 'cc-incomplete'}" data-mechid="${item.id}">
@@ -2052,12 +2060,12 @@ function renderRooms(){
 
   curInitPass = (cardInitDone !== (activeLevel ? activeLevel.id : null));
   const safetyHTML = (activeLevel && activeLevel.kind==='rooms') ? `
-      <div class="safetyblock ${(activeLevel.safety.smoke.present!==null && activeLevel.safety.co.present!==null && activeLevel.safety.combo.present!==null) ? 'cc-complete' : 'cc-incomplete'}">
+      <div class="safetyblock ${isSafetyComplete(activeLevel) ? 'cc-complete' : 'cc-incomplete'}">
         <p class="label" style="font-size:18px;">Smoke & CO detectors &mdash; required every level</p>
         ${safetyDetectorRow(activeLevel,'smoke','Smoke detector present')}
         ${safetyDetectorRow(activeLevel,'co','CO detector present')}
         ${safetyDetectorRow(activeLevel,'combo','Combo unit present')}
-        <p class="hint">Combo Yes auto-confirms Smoke and CO too. Double-tap Combo fast to clear it \u2014 that also resets Smoke and CO, so nothing stays marked done without you actually confirming it.</p>
+        <p class="hint">Any Yes needs a photo. Combo Yes auto-confirms Smoke and CO too, and one photo of the combo unit covers both. Double-tap Combo fast to clear it \u2014 that also resets Smoke and CO, so nothing stays marked done without you actually confirming it.</p>
       </div>
 ` : '';
 
