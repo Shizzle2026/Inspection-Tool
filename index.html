@@ -148,6 +148,9 @@ let cardDensity = localStorage.getItem('fieldTool.density') || 'comfortable';
 let roomCollapse = {};      // roomId -> true when shown as a slim bar
 let collapseInitFor = null; // level id whose collapse state has been set up
 let noteOpen = {};          // roomId -> true when the notes box was opened by hand
+let cardCollapse = {};      // card id -> true when shown as a slim bar (Exterior + interior blocks)
+let cardInitDone = null;    // which tab (exterior / level id) has had its fold state set up
+let curInitPass = false;    // true only while a tab is being drawn for the first time
 let landscapeLockSetting = localStorage.getItem('fieldTool.landscapeLock') === 'true';
 
 async function applyLandscapeLockSetting(){
@@ -258,7 +261,7 @@ function newProperty(address){
                 driveway: { present:null, materials:[], capacity:null, photos:[] },
                 garage: { present:null, capacity:null, attachment:null, exteriorPhotos:[], interiorPhotos:[] },
                 carport: { present:null, capacity:null, attachment:null, photos:[] },
-                alley: { present:null, surface:[], photos:[] },
+                alley: { present:null, surface:[], photos:[], photos2:[] },
                 sprinkler: { present:null, photos:[] },
                 foundation: { materials:[], types:[], condition:null },
                 siteInfluence: {present:null, type:'', proximity:null, impact:null, photos:[]},
@@ -498,8 +501,9 @@ function migratePropertyPhotos(p){
     if(p.exterior.sprinkler) fix(p.exterior.sprinkler.photos);
     if(!p.exterior.carport){ p.exterior.carport = {present:null, capacity:null, attachment:null, photos:[]}; changed = true; }
     fix(p.exterior.carport.photos);
-    if(!p.exterior.alley){ p.exterior.alley = {present:null, surface:[], photos:[]}; changed = true; }
-    fix(p.exterior.alley.photos);
+    if(!p.exterior.alley){ p.exterior.alley = {present:null, surface:[], photos:[], photos2:[]}; changed = true; }
+    if(!p.exterior.alley.photos2){ p.exterior.alley.photos2 = []; changed = true; }
+    fix(p.exterior.alley.photos); fix(p.exterior.alley.photos2);
     if(!p.exterior.siteInfluence || Array.isArray(p.exterior.siteInfluence)){ p.exterior.siteInfluence = {present:null, type:'', proximity:null, impact:null, photos:[]}; changed = true; }
     fix(p.exterior.siteInfluence.photos);
     if(!p.exterior.view || Array.isArray(p.exterior.view)){ p.exterior.view = {present:null, type:'', range:null, primary:null, impact:null, photos:[]}; changed = true; }
@@ -1122,7 +1126,7 @@ function isExteriorTabComplete(p){
     && (e.driveway.present===false || (e.driveway.present===true && e.driveway.materials.length>0 && !!e.driveway.capacity && e.driveway.photos.length>0))
     && (e.garage.present===false || (e.garage.present===true && !!e.garage.attachment && !!e.garage.capacity && e.garage.exteriorPhotos.length>0 && e.garage.interiorPhotos.length>0))
     && (e.carport.present===false || (e.carport.present===true && !!e.carport.attachment && !!e.carport.capacity && e.carport.photos.length>0))
-    && (e.alley.present===false || (e.alley.present===true && e.alley.surface.length>0 && e.alley.photos.length>0))
+    && (e.alley.present===false || (e.alley.present===true && e.alley.surface.length>0 && e.alley.photos.length>0 && (e.alley.photos2||[]).length>0))
     && (e.fence.front.present===false || (e.fence.front.present===true && e.fence.front.materials.length>0 && e.fence.front.photos.length>0))
     && (e.fence.rear.present===false || (e.fence.rear.present===true && e.fence.rear.materials.length>0 && e.fence.rear.photos.length>0))
     && (e.sprinkler.present===false || (e.sprinkler.present===true && e.sprinkler.photos.length>0))
@@ -1193,7 +1197,7 @@ function wirePropertyChrome(app, p){
   };
   document.getElementById('exportBtnHeader').onclick = renderExport;
   app.querySelectorAll('[data-gotab]').forEach(btn=>{
-    btn.onclick = ()=>{ currentTab = btn.dataset.gotab; collapseInitFor = null; renderCurrentTab(); };
+    btn.onclick = ()=>{ currentTab = btn.dataset.gotab; collapseInitFor = null; cardInitDone = null; renderCurrentTab(); };
   });
   document.getElementById('addLevelTabBtn').onclick = ()=>{
     const overlay = showModal(`
@@ -1245,8 +1249,49 @@ function renderCurrentTab(){
 function renderPropertyHome(){
   currentTab = 'exterior';
   collapseInitFor = null;
+  cardInitDone = null;
   renderExterior();
 }
+/* ---------- Fold-up cards: finished cards shrink to one slim bar ---------- */
+function joinS(a){ return a.filter(Boolean).join(' · '); }
+function photosN(n){ return n ? (n + ' photo' + (n===1 ? '' : 's')) : ''; }
+function ynText(v){ return v===true ? 'Yes' : (v===false ? 'No' : '—'); }
+function safetySummaryText(lvl){
+  const sf = lvl.safety;
+  return joinS(['Smoke ' + ynText(sf.smoke.present), 'CO ' + ynText(sf.co.present), 'Combo ' + ynText(sf.combo.present)]);
+}
+function mechSummaryText(item){
+  return joinS([item.fuelType, item.strapped===null||item.strapped===undefined ? '' : ('Strapped ' + (item.strapped ? 'Yes' : 'No')), photosN((item.photos||[]).length)]);
+}
+function collCard(id, title, summary, html){
+  const complete = /^\s*<(?:div|button)[^>]*class="[^"]*\bcc-complete\b/.test(html);
+  if(curInitPass) cardCollapse[id] = complete;   // first time a tab is shown: finished cards start folded
+  if(complete && cardCollapse[id] === true){
+    return `<button type="button" class="card roomcard-collapsed cc-complete" data-expandcard="${id}" data-cardid="${id}">
+      <span class="rc-check">✓</span><span class="rc-name">${title}</span><span class="rc-sum">${summary||''}</span><span class="rc-chev">▼</span></button>`;
+  }
+  if(complete){
+    const i = html.lastIndexOf('</div>');
+    return html.slice(0, i) + `<button type="button" class="btn btn-sm" data-collapsecard="${id}" style="margin-top:10px;">▲ Collapse</button>` + html.slice(i);
+  }
+  return html;
+}
+function wireCardCollapse(app){
+  app.querySelectorAll('[data-expandcard]').forEach(b=>{ b.onclick = ()=>{ cardCollapse[b.dataset.expandcard] = false; renderCurrentTab(); }; });
+  app.querySelectorAll('[data-collapsecard]').forEach(b=>{ b.onclick = ()=>{ cardCollapse[b.dataset.collapsecard] = true; renderCurrentTab(); }; });
+}
+function photoGroupCardHTML(title, slots){
+  // one card, several labelled photo slots side by side; green only when every slot has a photo
+  const done = slots.every(sl=> (sl[2]||[]).length>0);
+  return `
+    <div class="card ${done ? 'cc-complete' : 'cc-incomplete'}">
+      <p class="label" style="font-size:18px;margin-bottom:8px;">${title}</p>
+      <div class="row" style="align-items:flex-start;gap:12px;flex-wrap:wrap;">
+        ${slots.map(sl=>`<div style="flex:1 1 260px;">${photoStripHTML(sl[0], sl[1], sl[2])}</div>`).join('')}
+      </div>
+    </div>`;
+}
+
 /* ---------- Slim photo strip (used inside room cards to keep them short) ---------- */
 function photoStripHTML(key, label, photos){
   const arr = photos || [];
@@ -1470,8 +1515,9 @@ function carportCardHTML(c){
 }
 
 function alleyCardHTML(a){
+  if(!a.photos2) a.photos2 = [];
   const surfChips = ALLEY_SURFACES.map(v=>`<button class="chip ${a.surface.includes(v)?'selected':''}" data-alleysurf="${v}">${v}</button>`).join('');
-  const complete = a.present===false || (a.present===true && a.surface.length>0 && a.photos.length>0);
+  const complete = a.present===false || (a.present===true && a.surface.length>0 && a.photos.length>0 && a.photos2.length>0);
   return `
     <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
       <div class="row" style="align-items:flex-start;">
@@ -1482,7 +1528,7 @@ function alleyCardHTML(a){
             <button class="chip ${a.present===false?'selected':''}" data-alleypresent="no">No</button>
           </div>
         </div>
-        ${a.present ? `<div style="flex:1;">${photoTileHTML('alley_photo','Alley photo', a.photos)}</div>` : ''}
+        ${a.present ? `<div style="flex:1;">${photoStripHTML('alley_photo','Alley photo 1', a.photos)}</div><div style="flex:1;">${photoStripHTML('alley_photo2','Alley photo 2', a.photos2)}</div>` : ''}
       </div>
       ${a.present ? `
         <p class="fieldhead">Surface</p>
@@ -1570,46 +1616,69 @@ function viewCardHTML(vw){
 function renderExterior(){
   const p = findProp(currentPropId);
   const app = document.getElementById('app');
-  const tilesFront = EXTERIOR_TILES_FRONT.map(([k,label])=>photoTileHTML(k,label,p.exterior.photos[k],true)).join('');
-  const tilesStreet = EXTERIOR_TILES_STREET.map(([k,label])=>photoTileHTML(k,label,p.exterior.photos[k],true)).join('');
-  const tilesRear = EXTERIOR_TILES_REAR.map(([k,label])=>photoTileHTML(k,label,p.exterior.photos[k],true)).join('');
-  const componentsHTML = EXTERIOR_COMPONENTS.map(([key,label,opts,typeFieldLabel])=>componentCardHTML(key,label,opts,p.exterior.components[key],typeFieldLabel)).join('');
+  curInitPass = (cardInitDone !== 'exterior');
+  const E = p.exterior;
+  const slotsOf = (list)=> list.map(t=>[t[0], t[1], E.photos[t[0]] || []]);
+  const countPh = (slots)=> slots.reduce((n,sl)=>n + sl[2].length, 0);
+  const sFront = slotsOf(EXTERIOR_TILES_FRONT), sStreet = slotsOf(EXTERIOR_TILES_STREET), sRear = slotsOf(EXTERIOR_TILES_REAR);
+  const gFront  = collCard('grp_front',  'Front photos', photosN(countPh(sFront)),  photoGroupCardHTML('Front photos', sFront));
+  const gStreet = collCard('grp_street', 'Street scene', photosN(countPh(sStreet)), photoGroupCardHTML('Street scene', sStreet));
+  const gRear   = collCard('grp_rear',   'Rear photos',  photosN(countPh(sRear)),   photoGroupCardHTML('Rear photos', sRear));
+  const none = (present, text)=> present===false ? 'None' : text;
+  const cDriveway = collCard('driveway', 'Driveway', none(E.driveway.present, joinS([E.driveway.materials.join(', '), E.driveway.capacity ? E.driveway.capacity+' car' : '', photosN(E.driveway.photos.length)])), drivewayCardHTML(E.driveway));
+  const cGarage   = collCard('garage', 'Garage', none(E.garage.present, joinS([E.garage.attachment, E.garage.capacity ? E.garage.capacity+' car' : '', photosN(E.garage.exteriorPhotos.length + E.garage.interiorPhotos.length)])), garageCardHTML(E.garage));
+  const cCarport  = collCard('carport', 'Carport', none(E.carport.present, joinS([E.carport.attachment, E.carport.capacity ? E.carport.capacity+' car' : '', photosN(E.carport.photos.length)])), carportCardHTML(E.carport));
+  const cFenceF   = collCard('fence_front', 'Front fence', none(E.fence.front.present, joinS([E.fence.front.materials.join(', '), photosN(E.fence.front.photos.length)])), fenceSideHTML('front','Front', E.fence.front));
+  const cFenceR   = collCard('fence_rear', 'Rear fence', none(E.fence.rear.present, joinS([E.fence.rear.materials.join(', '), photosN(E.fence.rear.photos.length)])), fenceSideHTML('rear','Rear', E.fence.rear));
+  const cAlley    = collCard('alley', 'Alley', none(E.alley.present, joinS([E.alley.surface.join(', '), photosN(E.alley.photos.length + (E.alley.photos2||[]).length)])), alleyCardHTML(E.alley));
+  const featCard = (key, label)=>{ const f = E.features[key]; return collCard('feat_'+key, label, none(f.present, joinS([f.type, f.materials.join(', '), photosN(f.photos.length)])), featureCardHTML(key, label, f, ...EXTERIOR_FEATURES.find(x=>x[0]===key).slice(2))); };
+  const cPorch = featCard('porch','Porch'), cPatio = featCard('patio','Patio'), cDeck = featCard('deck','Deck');
+  const cFoundation = collCard('foundation', 'Foundation', joinS([E.foundation.materials.join(', '), E.foundation.types.join(', '), condLabel(E.foundation.condition)]), foundationCardHTML(E.foundation));
+  const componentsHTML = EXTERIOR_COMPONENTS.map(([key,label,opts,typeFieldLabel])=>{
+    const c = E.components[key];
+    return collCard('comp_'+key, label, joinS([c.types.join(', '), key==='roof' ? c.ageRange : '', condLabel(c.condition)]), componentCardHTML(key,label,opts,c,typeFieldLabel));
+  }).join('');
+  const cSite = collCard('siteinfl', 'Site influence', none(E.siteInfluence.present, joinS([E.siteInfluence.type, E.siteInfluence.proximity, E.siteInfluence.impact, photosN(E.siteInfluence.photos.length)])), siteInfluenceCardHTML(E.siteInfluence));
+  const cView = collCard('view', 'View', none(E.view.present, joinS([E.view.type, E.view.range, E.view.primary===true ? 'Primary' : '', E.view.impact, photosN(E.view.photos.length)])), viewCardHTML(E.view));
+  const outbuildingHTML = `
+      <div class="card ${(E.outbuildingPresent===false || (E.outbuildingPresent===true && E.outbuildingPhotos.length>0)) ? 'cc-complete' : 'cc-incomplete'}">
+        <div class="row"><p class="label">Outbuilding present?</p></div>
+        <div class="chiprow">
+          <button class="chip ${E.outbuildingPresent===true?'selected':''}" data-ob="yes">Yes</button>
+          <button class="chip ${E.outbuildingPresent===false?'selected':''}" data-ob="no">No</button>
+        </div>
+        ${E.outbuildingPresent ? photoTileHTML('outbuilding','Outbuilding photos', E.outbuildingPhotos) : ''}
+      </div>`;
+  const cOutbuilding = collCard('outbuilding', 'Outbuilding', none(E.outbuildingPresent, photosN(E.outbuildingPhotos.length)), outbuildingHTML);
   const heightOptions = ['0-1 ft','1-2 ft','2-3 ft','3-4 ft','4+ ft'];
   const heightChips = heightOptions.map(v=>`<button class="chip ${p.exterior.entranceHeight===v?'selected':''}" data-height="${v}">${v}</button>`).join('');
 
   app.innerHTML = `
     ${propertyChromeHTML(p)}
     <div class="content">
-      ${tilesFront}
-      ${drivewayCardHTML(p.exterior.driveway)}
-      ${garageCardHTML(p.exterior.garage)}
-      ${carportCardHTML(p.exterior.carport)}
-      ${tilesStreet}
-      ${fenceSideHTML('front','Front', p.exterior.fence.front)}
-      ${fenceSideHTML('rear','Rear', p.exterior.fence.rear)}
-      ${tilesRear}
-      ${alleyCardHTML(p.exterior.alley)}
+      ${gFront}
+      ${cDriveway}
+      ${cGarage}
+      ${cCarport}
+      ${gStreet}
+      ${cFenceF}
+      ${cFenceR}
+      ${gRear}
+      ${cAlley}
       ${sprinklerCardHTML(p.exterior.sprinkler)}
-      ${featureCardHTML('porch','Porch', p.exterior.features.porch, ...EXTERIOR_FEATURES.find(f=>f[0]==='porch').slice(2))}
+      ${cPorch}
       <div class="card ${p.exterior.entranceHeight ? 'cc-complete' : 'cc-incomplete'}">
         <p class="label">Entrance height above grade</p>
         <p class="sub">UAD 3.6 field &mdash; approximate range is fine</p>
         <div class="chiprow">${heightChips}</div>
       </div>
-      ${featureCardHTML('patio','Patio', p.exterior.features.patio, ...EXTERIOR_FEATURES.find(f=>f[0]==='patio').slice(2))}
-      ${featureCardHTML('deck','Deck', p.exterior.features.deck, ...EXTERIOR_FEATURES.find(f=>f[0]==='deck').slice(2))}
-      ${foundationCardHTML(p.exterior.foundation)}
+      ${cPatio}
+      ${cDeck}
+      ${cFoundation}
       ${componentsHTML}
-      ${siteInfluenceCardHTML(p.exterior.siteInfluence)}
-      ${viewCardHTML(p.exterior.view)}
-      <div class="card ${(p.exterior.outbuildingPresent===false || (p.exterior.outbuildingPresent===true && p.exterior.outbuildingPhotos.length>0)) ? 'cc-complete' : 'cc-incomplete'}">
-        <div class="row"><p class="label">Outbuilding present?</p></div>
-        <div class="chiprow">
-          <button class="chip ${p.exterior.outbuildingPresent===true?'selected':''}" data-ob="yes">Yes</button>
-          <button class="chip ${p.exterior.outbuildingPresent===false?'selected':''}" data-ob="no">No</button>
-        </div>
-        ${p.exterior.outbuildingPresent ? photoTileHTML('outbuilding','Outbuilding photos', p.exterior.outbuildingPhotos) : ''}
-      </div>
+      ${cSite}
+      ${cView}
+      ${cOutbuilding}
       <div class="card">
         <p class="label">Site / exterior notes</p>
         <textarea id="extNotes" placeholder="Anything else worth flagging...">${p.exterior.notes||''}</textarea>
@@ -1617,7 +1686,9 @@ function renderExterior(){
       ${photoTileHTML('exteriorAdditional','Additional photos', p.exterior.additionalPhotos, true)}
     </div>
   `;
+  cardInitDone = 'exterior'; curInitPass = false;
   wirePropertyChrome(app, p);
+  wireCardCollapse(app);
   EXTERIOR_TILES.forEach(([k])=> wirePhotoTile(app, k, ()=>(p.exterior.photos[k]=p.exterior.photos[k]||[]), renderExterior));
   wirePhotoTile(app, 'outbuilding', ()=>p.exterior.outbuildingPhotos, renderExterior);
   wirePhotoTile(app, 'fence_front', ()=>p.exterior.fence.front.photos, renderExterior);
@@ -1627,6 +1698,7 @@ function renderExterior(){
   wirePhotoTile(app, 'garage_int', ()=>p.exterior.garage.interiorPhotos, renderExterior);
   wirePhotoTile(app, 'carport_photo', ()=>p.exterior.carport.photos, renderExterior);
   wirePhotoTile(app, 'alley_photo', ()=>p.exterior.alley.photos, renderExterior);
+  wirePhotoTile(app, 'alley_photo2', ()=>p.exterior.alley.photos2, renderExterior);
   wirePhotoTile(app, 'sprinkler_photo', ()=>p.exterior.sprinkler.photos, renderExterior);
   EXTERIOR_FEATURES.forEach(([key])=> wirePhotoTile(app, key+'_photo', ()=>p.exterior.features[key].photos, renderExterior));
   wirePhotoTile(app, 'si_photo', ()=>p.exterior.siteInfluence.photos, renderExterior);
@@ -1978,6 +2050,17 @@ function renderRooms(){
     activeLevel.rooms.forEach(r=>{ roomCollapse[r.id] = isRoomComplete(r); });
   }
 
+  curInitPass = (cardInitDone !== (activeLevel ? activeLevel.id : null));
+  const safetyHTML = (activeLevel && activeLevel.kind==='rooms') ? `
+      <div class="safetyblock ${(activeLevel.safety.smoke.present!==null && activeLevel.safety.co.present!==null && activeLevel.safety.combo.present!==null) ? 'cc-complete' : 'cc-incomplete'}">
+        <p class="label" style="font-size:18px;">Smoke & CO detectors &mdash; required every level</p>
+        ${safetyDetectorRow(activeLevel,'smoke','Smoke detector present')}
+        ${safetyDetectorRow(activeLevel,'co','CO detector present')}
+        ${safetyDetectorRow(activeLevel,'combo','Combo unit present')}
+        <p class="hint">Combo Yes auto-confirms Smoke and CO too. Double-tap Combo fast to clear it \u2014 that also resets Smoke and CO, so nothing stays marked done without you actually confirming it.</p>
+      </div>
+` : '';
+
   const levelHTML = !activeLevel ? `
     <div class="card">
       <p class="label">No level selected</p>
@@ -1989,7 +2072,7 @@ function renderRooms(){
           <p class="label">${activeLevel.label}</p>
           <button class="btn btn-sm" data-dellevel="${activeLevel.id}">Remove</button>
         </div>
-        ${activeLevel.rooms.map(mechCardHTML).join('')}
+        ${activeLevel.rooms.map(item=>collCard('mech_'+item.id, item.label || 'Item', mechSummaryText(item), mechCardHTML(item))).join('')}
         <button class="btn btn-accent" data-addmech="${activeLevel.id}" style="width:100%;">+ Add item to ${activeLevel.label}</button>
       </div>` : `
     <div class="levelcard" data-levelid="${activeLevel.id}">
@@ -1997,14 +2080,8 @@ function renderRooms(){
         <p class="label">${activeLevel.label}</p>
         <button class="btn btn-sm" data-dellevel="${activeLevel.id}">Remove level</button>
       </div>
-      <div class="safetyblock ${(activeLevel.safety.smoke.present!==null && activeLevel.safety.co.present!==null && activeLevel.safety.combo.present!==null) ? 'cc-complete' : 'cc-incomplete'}">
-        <p class="label" style="font-size:18px;">Smoke & CO detectors &mdash; required every level</p>
-        ${safetyDetectorRow(activeLevel,'smoke','Smoke detector present')}
-        ${safetyDetectorRow(activeLevel,'co','CO detector present')}
-        ${safetyDetectorRow(activeLevel,'combo','Combo unit present')}
-        <p class="hint">Combo Yes auto-confirms Smoke and CO too. Double-tap Combo fast to clear it \u2014 that also resets Smoke and CO, so nothing stays marked done without you actually confirming it.</p>
-      </div>
-      ${isBasementLevel(activeLevel) ? basementCardHTML(activeLevel) : ''}
+      ${collCard('safety_'+activeLevel.id, 'Smoke & CO detectors', safetySummaryText(activeLevel), safetyHTML)}
+      ${isBasementLevel(activeLevel) ? collCard('bsmt_'+activeLevel.id, 'Below grade', joinS([activeLevel.basement.grade, activeLevel.basement.access, photosN(activeLevel.basement.accessPhotos.length)]), basementCardHTML(activeLevel)) : ''}
       ${activeLevel.label === 'L1' ? broadbandCardHTML(p) : ''}
       ${activeLevel.rooms.map((r,idx)=>roomCardHTML(r,idx)).join('')}
       <button class="btn btn-accent" data-addroom="${activeLevel.id}" style="width:100%;">+ Add room to ${activeLevel.label}</button>
@@ -2016,7 +2093,9 @@ function renderRooms(){
       ${levelHTML}
     </div>
   `;
+  cardInitDone = activeLevel ? activeLevel.id : null; curInitPass = false;
   wirePropertyChrome(app, p);
+  wireCardCollapse(app);
 
   app.querySelectorAll('[data-det]').forEach(btn=>{
     const [levelId,key] = btn.dataset.det.split('|');
@@ -2367,7 +2446,7 @@ function collectPhotoFiles(p){
     addAll(p.exterior.garage.interiorPhotos, 'Garage - interior');
   }
   if(p.exterior.carport.present) addAll(p.exterior.carport.photos, 'Carport');
-  if(p.exterior.alley.present) addAll(p.exterior.alley.photos, 'Alley');
+  if(p.exterior.alley.present){ addAll(p.exterior.alley.photos, 'Alley 1'); addAll(p.exterior.alley.photos2, 'Alley 2'); }
   if(p.exterior.sprinkler.present) addAll(p.exterior.sprinkler.photos, 'Sprinkler system');
   if(p.exterior.siteInfluence.present) addAll(p.exterior.siteInfluence.photos, 'Site influence');
   if(p.exterior.view.present) addAll(p.exterior.view.photos, 'View');
