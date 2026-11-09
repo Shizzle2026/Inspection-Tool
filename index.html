@@ -71,10 +71,15 @@
   .roomcard-collapsed .rc-name{font-size:19px;font-weight:700;color:#0b5fb0;white-space:nowrap;}
   .roomcard-collapsed .rc-sum{flex:1;font-size:15px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .roomcard-collapsed .rc-chev{font-size:16px;color:var(--sub);}
-  .photostrip .ps-head{display:flex;justify-content:space-between;align-items:center;font-size:15px;font-weight:700;margin-bottom:6px;}
-  .photostrip .ps-count{color:var(--sub);font-weight:600;}
-  .photostrip .ps-add{display:block;text-align:center;cursor:pointer;}
-  .photostrip .thumb{width:60px;height:60px;}
+  .photostrip{display:flex;align-items:center;gap:8px;}
+  .photostrip .ps-add{flex:0 0 auto;white-space:nowrap;cursor:pointer;}
+  .photostrip .ps-thumbs{display:flex;gap:6px;flex:1;min-width:0;overflow-x:auto;}
+  .photostrip .thumb{flex:0 0 auto;width:52px;height:52px;}
+  .roomcard .chiprow{gap:8px;}
+  .roomcard .chip{font-size:16px;padding:8px 12px;min-height:46px;}
+  .cond-grid{display:grid;grid-template-columns:0.9fr 1.25fr 1.3fr 1.55fr;gap:8px;margin-top:8px;}
+  .roomcard .cond-grid .chip{width:100%;font-size:15px;padding:8px 6px;line-height:1.15;}
+  @media (max-width:760px){.cond-grid{grid-template-columns:1fr 1fr;}}
   body.compact .roomcard{padding:8px;margin-bottom:8px;}
   body.compact .roomcard .fieldhead{margin-top:6px;}
   body.compact .roomcard .chiprow{margin-top:6px;gap:8px;}
@@ -189,6 +194,9 @@ const EXTERIOR_COMPONENTS = [
 const CEILING_HEIGHT_OPTIONS = ['Less than 7 ft','7 ft','8 ft','9 ft','10 ft or more','2 or more stories'];
 const CEILING_STYLE_OPTIONS = ['Flat','Vaulted'];
 const CONDITION_OPTIONS = ['New / like new','Typical wear and tear','Damaged and functional','Damaged and non-functional'];
+// Shorter button text for the two rarely used options. The saved/exported value stays the full UAD wording.
+const CONDITION_SHORT = {'Damaged and functional':'Damaged - func.', 'Damaged and non-functional':'Damaged - non-func.'};
+function condLabel(v){ return CONDITION_SHORT[v] || v; }
 const FLOORING_OPTIONS = ['Carpet','Wood','Vinyl','LVP','Tile','Laminate','Concrete','Other'];
 const UPDATE_STATUS_OPTIONS = ['Not updated','Partially updated','Fully updated'];
 const ROOF_AGE_OPTIONS = ['Less than 1 year','1 to 10 years','10 to 20 years','20 or more years'];
@@ -1230,9 +1238,8 @@ function photoStripHTML(key, label, photos){
   const arr = photos || [];
   const thumbs = arr.map((ph,i)=>`<div class="thumb"><img src="${ph.src}" data-key="${key}" data-idx="${i}" onclick="openPhotoViewer(this)"><button class="del" data-delkey="${key}" data-delidx="${i}">&times;</button></div>`).join('');
   return `<div class="photostrip">
-    <div class="ps-head"><span>${label}</span><span class="ps-count">${arr.length}</span></div>
-    <label class="btn btn-accent btn-sm ps-add">+ Photo<input type="file" accept="image/*" capture="environment" multiple style="display:none;" data-camkey="${key}"></label>
-    ${arr.length ? `<div class="thumbs" style="margin-top:8px;">${thumbs}</div>` : ''}
+    <label class="btn btn-accent btn-sm ps-add">+ ${label}${arr.length ? ' \u00b7 ' + arr.length : ''}<input type="file" accept="image/*" capture="environment" multiple style="display:none;" data-camkey="${key}"></label>
+    ${arr.length ? `<div class="ps-thumbs">${thumbs}</div>` : ''}
   </div>`;
 }
 
@@ -1279,7 +1286,7 @@ function wirePhotoTile(container, key, getArr, rerender){
 /* ---------- Render: Exterior ---------- */
 function componentCardHTML(key,label,typeOptions,comp,typeFieldLabel){
   const typeChips = typeOptions.map(v=>`<button class="chip ${comp.types.includes(v)?'selected':''}" data-comptype="${key}" data-val="${v}">${v}</button>`).join('');
-  const condChips = CONDITION_OPTIONS.map(v=>`<button class="chip ${comp.condition===v?'selected':''}" data-compcond="${key}" data-val="${v}">${v}</button>`).join('');
+  const condChips = CONDITION_OPTIONS.map(v=>`<button class="chip ${comp.condition===v?'selected':''}" data-compcond="${key}" data-val="${v}">${condLabel(v)}</button>`).join('');
   const isRoof = (key==='roof');
   const complete = comp.types.length>0 && comp.condition && (!isRoof || comp.ageRange);
   const ageBlock = isRoof ? `
@@ -1302,7 +1309,7 @@ function componentCardHTML(key,label,typeOptions,comp,typeFieldLabel){
 function foundationCardHTML(f){
   const matChips = FOUNDATION_MATERIALS.map(v=>`<button class="chip ${f.materials.includes(v)?'selected':''}" data-foundmat="${v}">${v}</button>`).join('');
   const typeChips = FOUNDATION_TYPES.map(v=>`<button class="chip ${f.types.includes(v)?'selected':''}" data-foundtype="${v}">${v}</button>`).join('');
-  const condChips = CONDITION_OPTIONS.map(v=>`<button class="chip ${f.condition===v?'selected':''}" data-foundcond="${v}">${v}</button>`).join('');
+  const condChips = CONDITION_OPTIONS.map(v=>`<button class="chip ${f.condition===v?'selected':''}" data-foundcond="${v}">${condLabel(v)}</button>`).join('');
   const complete = f.materials.length>0 && f.types.length>0 && f.condition;
   return `
     <div class="card ${complete ? 'cc-complete' : 'cc-incomplete'}">
@@ -1809,7 +1816,7 @@ function renderRooms(){
 
     // Finished rooms can fold down to one slim bar
     if(roomComplete && roomCollapse[r.id] === true){
-      const summary = [r.flooringType, r.ceilingHeight, r.ceilingStyle, r.condition].filter(Boolean).join(' · ');
+      const summary = [r.flooringType, r.ceilingHeight, r.ceilingStyle, condLabel(r.condition)].filter(Boolean).join(' · ');
       return `
       <button type="button" class="roomcard roomcard-collapsed cc-complete" data-expandroom="${r.id}" data-roomid="${r.id}">
         <span class="rc-check">✓</span>
@@ -1823,7 +1830,7 @@ function renderRooms(){
     const nameOpts = ROOM_NAME_OPTIONS.map(n=>`<option value="${n}" ${n===roomCategory?'selected':''}>${n}</option>`).join('');
     const ceilChips = CEILING_HEIGHT_OPTIONS.map(v=>`<button class="chip ${r.ceilingHeight===v?'selected':''}" data-ceil="${r.id}" data-ceilval="${v}">${v}</button>`).join('');
     const styleChips = CEILING_STYLE_OPTIONS.map(v=>`<button class="chip ${r.ceilingStyle===v?'selected':''}" data-style="${r.id}" data-styleval="${v}">${v}</button>`).join('');
-    const condChips = CONDITION_OPTIONS.map(v=>`<button class="chip ${r.condition===v?'selected':''}" style="width:100%;" data-cond="${r.id}" data-condval="${v}">${v}</button>`).join('');
+    const condChips = CONDITION_OPTIONS.map(v=>`<button class="chip ${r.condition===v?'selected':''}" data-cond="${r.id}" data-condval="${v}">${condLabel(v)}</button>`).join('');
     const floorChips = FLOORING_OPTIONS.map(v=>`<button class="chip ${r.flooringType===v?'selected':''}" data-floor="${r.id}" data-floorval="${v}">${v}</button>`).join('');
     const updatedBlock = isKitchenOrBath(r.name) ? `
       <p class="fieldhead">Update status</p>
@@ -1837,21 +1844,19 @@ function renderRooms(){
         </div>
       ` : ''}
     ` : '';
-    const notesBlock = (r.notes || noteOpen[r.id]) ? `
+    const noteIsOpen = !!(r.notes || noteOpen[r.id]);
+    const notesBlock = noteIsOpen ? `
       <p class="fieldhead">Notes</p>
       <textarea data-roomnotes="${r.id}" placeholder="Anything specific to this room...">${r.notes||''}</textarea>
-    ` : `<button type="button" class="btn btn-sm" data-addnote="${r.id}" style="margin-top:10px;">+ Note</button>`;
+    ` : '';
     return `
     <div class="roomcard ${roomComplete ? 'cc-complete' : 'cc-incomplete'}" data-roomid="${r.id}">
       <div class="row" style="align-items:flex-start;gap:12px;">
         <div style="flex:30;">
           <select data-roomselect="${r.id}" class="room-name-select" style="width:100%;font-weight:700;font-size:19px;">${nameOpts}</select>
         </div>
-        <div style="flex:30;">
+        <div style="flex:40;">
           ${showOtherBox ? `<input type="text" data-roomcustom="${r.id}" value="${r.name==='Other'?'':r.name}" placeholder="Type room name" style="width:100%;font-weight:700;font-size:19px;color:#0b5fb0;">` : ''}
-        </div>
-        <div style="flex:10;padding-top:0;">
-          <button class="btn btn-sm" data-delroom="${r.id}" title="Remove room" style="width:100%;padding:14px 6px;">&times;</button>
         </div>
         <div style="flex:30;">
           ${photoStripHTML('room_'+r.id, 'Room photo', r.roomPhotos)}
@@ -1863,7 +1868,7 @@ function renderRooms(){
           <p class="fieldhead" style="margin-top:0;">Flooring type</p>
           <div class="chiprow">${floorChips}</div>
           <p class="fieldhead">Flooring condition</p>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">${condChips}</div>
+          <div class="cond-grid">${condChips}</div>
         </div>
         <div style="flex:3;">
           ${photoStripHTML('floor_'+r.id, 'Flooring photo', r.flooringPhotos)}
@@ -1872,8 +1877,7 @@ function renderRooms(){
 
       <div class="row" style="align-items:flex-start;gap:12px;margin-top:12px;">
         <div style="flex:7;">
-          <p class="fieldhead" style="margin-top:0;">Ceiling height</p>
-          <p class="sub">Measured at highest point &mdash; nearest foot (UAD 3.6)</p>
+          <p class="fieldhead" style="margin-top:0;">Ceiling height <span style="font-weight:500;font-size:14px;color:var(--sub);">&mdash; highest point, nearest foot (UAD 3.6)</span></p>
           <div class="chiprow">${ceilChips}</div>
         </div>
         <div style="flex:3;">
@@ -1886,7 +1890,12 @@ function renderRooms(){
 
       ${notesBlock}
 
-      ${roomComplete ? `<button type="button" class="btn btn-sm" data-collapseroom="${r.id}" style="margin-top:10px;width:100%;">▲ Collapse this room</button>` : ''}
+      <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap;">
+        ${noteIsOpen ? '' : `<button type="button" class="btn btn-sm" data-addnote="${r.id}">+ Note</button>`}
+        ${roomComplete ? `<button type="button" class="btn btn-sm" data-collapseroom="${r.id}">▲ Collapse</button>` : ''}
+        <span style="flex:1;"></span>
+        <button type="button" class="btn btn-sm" data-delroom="${r.id}" style="background:transparent;border-color:transparent;color:var(--danger);text-decoration:underline;">Remove room</button>
+      </div>
     </div>`;
   };
 
