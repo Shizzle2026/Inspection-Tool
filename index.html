@@ -81,6 +81,7 @@
   .phototile .tile-thumbs .thumb{flex:0 0 auto;width:56px;height:56px;}
   .phototile .tile-add{flex:0 0 auto;margin-left:auto;cursor:pointer;}
   .card > .phototile{margin-top:10px;}
+  .tile-stack{flex:0 1 34%;min-width:320px;display:flex;flex-direction:column;gap:8px;margin-left:auto;}
   .content > .phototile{margin-bottom:14px;}
   .photostrip{display:flex;align-items:center;gap:8px;}
   .photostrip .ps-add{flex:0 0 auto;white-space:nowrap;cursor:pointer;}
@@ -1310,9 +1311,9 @@ function photoGroupCardHTML(title, slots){
   const done = slots.every(sl=> (sl[2]||[]).length>0);
   return `
     <div class="card ${done ? 'cc-complete' : 'cc-incomplete'}">
-      <p class="label" style="font-size:18px;margin-bottom:8px;">${title}</p>
       <div class="row" style="align-items:flex-start;gap:12px;flex-wrap:wrap;">
-        ${slots.map(sl=>`<div style="flex:1 1 330px;">${photoTileHTML(sl[0], sl[1], sl[2])}</div>`).join('')}
+        <p class="label" style="font-size:18px;margin:0;flex:1 1 140px;">${title}</p>
+        <div class="tile-stack">${slots.map(sl=>photoTileHTML(sl[0], sl[1], sl[2])).join('')}</div>
       </div>
     </div>`;
 }
@@ -1545,7 +1546,7 @@ function alleyCardHTML(a){
             <button class="chip ${a.present===false?'selected':''}" data-alleypresent="no">No</button>
           </div>
         </div>
-        ${a.present ? `<div style="flex:1;">${photoStripHTML('alley_photo','Alley photo 1', a.photos)}</div><div style="flex:1;">${photoStripHTML('alley_photo2','Alley photo 2', a.photos2)}</div>` : ''}
+        ${a.present ? `<div class="tile-stack">${photoStripHTML('alley_photo','Alley photo 1', a.photos)}${photoStripHTML('alley_photo2','Alley photo 2', a.photos2)}</div>` : ''}
       </div>
       ${a.present ? `
         <p class="fieldhead">Surface</p>
@@ -1985,7 +1986,7 @@ function renderRooms(){
 
       <div style="display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin-top:12px;">
         <div>
-          <p class="fieldhead" style="margin-top:0;">Ceiling height <span style="font-weight:500;font-size:14px;color:var(--sub);">&mdash; highest point, nearest foot (UAD 3.6)</span></p>
+          <p class="fieldhead" style="margin-top:0;">Ceiling height <span style="font-weight:500;font-size:14px;color:var(--sub);">&mdash; highest point, whole feet only (7 ft covers 7&prime;0&Prime;&ndash;7&prime;11&Prime;)</span></p>
           <div class="chiprow">${ceilChips}</div>
         </div>
         <div>
