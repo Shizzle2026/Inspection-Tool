@@ -783,8 +783,15 @@ function askPropertyDetails(existing, onOk){
     addrHint.style.display='none';
     debounceTimer = setTimeout(async ()=>{
       try{
-        const res = await fetch('https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&countrycodes=us&viewbox=-124.85,49.05,-116.9,45.5&bounded=0&q='+encodeURIComponent(q));
-        const data = await res.json();
+        // Washington only (bounded=1 keeps results inside the WA box; the state
+        // check below also drops the slivers of Oregon/Idaho inside that box).
+        // Eastern Washington results are listed first.
+        const res = await fetch('https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=20&countrycodes=us&viewbox=-124.85,49.05,-116.9,45.5&bounded=1&q='+encodeURIComponent(q));
+        const rawData = await res.json();
+        const data = rawData
+          .filter(d=> d.address && d.address.state === 'Washington')
+          .sort((a,b)=> (parseFloat(b.lon) > -120.9 ? 1 : 0) - (parseFloat(a.lon) > -120.9 ? 1 : 0))
+          .slice(0,5);
         const formatted = data.map(d=>formatShortAddress(d.address||{}));
         // Only ever show/use the cleanly-formatted version - never fall back to
         // Nominatim's raw display_name, which can include neighborhood/county/
