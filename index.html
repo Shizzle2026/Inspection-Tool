@@ -576,6 +576,7 @@ function formatAppt(iso){
   if(!iso) return '';
   try{
     const d = new Date(iso);
+    if(/T00:00$/.test(iso)) return d.toLocaleDateString(undefined, {weekday:'short', month:'numeric', day:'numeric'});
     return d.toLocaleString(undefined, {weekday:'short', month:'numeric', day:'numeric', hour:'numeric', minute:'2-digit'});
   }catch(e){ return iso; }
 }
@@ -603,6 +604,119 @@ function formatShortAddress(addr){
   if(stateZip) parts.push(stateZip);
   return parts.join(', ');
 }
+/* ---------- Tap-only date and time pickers (no scroll wheels) ---------- */
+function mkDatePicker(host, initial, opts){
+  opts = opts || {};
+  let value = initial || null;
+  let showCal = false, calY = 0, calM = 0;
+  const pad = n=>String(n).padStart(2,'0');
+  const iso = d=> d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+  const parse = str=>{ const a=str.split('-').map(Number); return new Date(a[0],a[1]-1,a[2]); };
+  const todayIso = iso(new Date());
+  const chipStyle = 'padding:10px 14px;min-height:46px;';
+  function render(){
+    const today = new Date(); today.setHours(0,0,0,0);
+    const dayChips = [];
+    for(let i=0;i<7;i++){
+      const d = new Date(today); d.setDate(today.getDate()+i);
+      const label = i===0 ? 'Today' : (i===1 ? 'Tomorrow' : d.toLocaleDateString(undefined,{weekday:'short', day:'numeric'}));
+      dayChips.push(`<button type="button" class="chip ${value===iso(d)?'selected':''}" style="${chipStyle}" data-dpday="${iso(d)}">${label}</button>`);
+    }
+    const extraChips = (opts.extra||[]).map((x,i)=>`<button type="button" class="chip" style="${chipStyle}" data-dpextra="${i}">${x.label}</button>`).join('');
+    let cal = '';
+    if(showCal){
+      const first = new Date(calY, calM, 1);
+      const startDow = first.getDay();
+      const daysInMonth = new Date(calY, calM+1, 0).getDate();
+      const monthName = first.toLocaleDateString(undefined,{month:'long', year:'numeric'});
+      let cells = '';
+      for(let i=0;i<startDow;i++) cells += '<div></div>';
+      for(let d=1; d<=daysInMonth; d++){
+        const di = calY+'-'+pad(calM+1)+'-'+pad(d);
+        const sel = (value===di);
+        const isToday = (di===todayIso);
+        cells += `<button type="button" data-dpcal="${di}" style="min-height:46px;font-size:17px;font-weight:600;border-radius:10px;border:2px solid ${sel?'var(--accent)':(isToday?'var(--sub)':'var(--line)')};background:${sel?'var(--accent-bg)':'var(--bg)'};color:${sel?'var(--accent)':'var(--text)'};touch-action:manipulation;">${d}</button>`;
+      }
+      cal = `<div style="margin-top:12px;border:2px solid var(--line);border-radius:12px;padding:10px;">
+        <div class="row" style="margin-bottom:8px;">
+          <button type="button" class="btn btn-sm" data-dpnav="-1">&lsaquo;</button>
+          <p class="label" style="font-size:17px;">${monthName}</p>
+          <button type="button" class="btn btn-sm" data-dpnav="1">&rsaquo;</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;text-align:center;font-size:13px;color:var(--sub);margin-bottom:4px;"><div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div></div>
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;">${cells}</div>
+      </div>`;
+    }
+    host.innerHTML = `
+      <p class="sub" style="margin:6px 0 0;font-weight:700;color:${value?'var(--text)':'var(--sub)'};">${value ? parse(value).toLocaleDateString(undefined,{weekday:'long', month:'long', day:'numeric', year:'numeric'}) : 'Not set'}</p>
+      <div class="chiprow" style="margin-top:8px;gap:8px;">${dayChips.join('')}${extraChips}
+        <button type="button" class="chip ${showCal?'selected':''}" style="${chipStyle}" data-dpother="1">Other date&hellip;</button>
+        ${value ? `<button type="button" class="chip" style="${chipStyle}" data-dpclear="1">Clear</button>` : ''}
+      </div>${cal}`;
+    host.querySelectorAll('[data-dpday]').forEach(b=> b.onclick = ()=>{ value = b.dataset.dpday; render(); });
+    host.querySelectorAll('[data-dpextra]').forEach(b=> b.onclick = ()=>{ const v = opts.extra[parseInt(b.dataset.dpextra,10)].get(); if(v){ value = v; render(); } else { toast('Pick the appointment date first.', 2500); } });
+    host.querySelectorAll('[data-dpcal]').forEach(b=> b.onclick = ()=>{ value = b.dataset.dpcal; showCal = false; render(); });
+    host.querySelectorAll('[data-dpnav]').forEach(b=> b.onclick = ()=>{ calM += parseInt(b.dataset.dpnav,10); if(calM<0){ calM=11; calY--; } if(calM>11){ calM=0; calY++; } render(); });
+    const other = host.querySelector('[data-dpother]');
+    if(other) other.onclick = ()=>{
+      showCal = !showCal;
+      if(showCal){ const base = value ? parse(value) : new Date(); calY = base.getFullYear(); calM = base.getMonth(); }
+      render();
+    };
+    const clr = host.querySelector('[data-dpclear]');
+    if(clr) clr.onclick = ()=>{ value = null; render(); };
+  }
+  render();
+  return { get: ()=>value };
+}
+
+function mkTimePicker(host, initial){
+  // initial/get() are 24-hour "HH:MM" strings (or null when no time chosen)
+  let hour12 = null, minute = null, ampm = null, ampmManual = false;
+  if(initial){
+    const a = initial.split(':').map(Number);
+    ampm = a[0] >= 12 ? 'PM' : 'AM';
+    hour12 = a[0] % 12 === 0 ? 12 : a[0] % 12;
+    minute = a[1];
+    ampmManual = true;
+  }
+  const chipStyle = 'padding:10px 14px;min-height:46px;min-width:52px;';
+  function render(){
+    const hours = [7,8,9,10,11,12,1,2,3,4,5,6];
+    if(hour12 !== null && !hours.includes(hour12)) hours.push(hour12);
+    const mins = [0,15,30,45];
+    if(minute !== null && !mins.includes(minute)) mins.push(minute);
+    const show = (hour12 !== null)
+      ? hour12 + ':' + String(minute===null?0:minute).padStart(2,'0') + ' ' + (ampm || 'AM')
+      : 'Not set';
+    host.innerHTML = `
+      <p class="sub" style="margin:6px 0 0;font-weight:700;color:${hour12!==null?'var(--text)':'var(--sub)'};">${show}</p>
+      <div class="chiprow" style="margin-top:8px;gap:8px;">${hours.map(h=>`<button type="button" class="chip ${hour12===h?'selected':''}" style="${chipStyle}" data-tphour="${h}">${h}</button>`).join('')}</div>
+      <div class="chiprow" style="margin-top:8px;gap:8px;">${mins.map(m=>`<button type="button" class="chip ${minute===m?'selected':''}" style="${chipStyle}" data-tpmin="${m}">:${String(m).padStart(2,'0')}</button>`).join('')}
+        <button type="button" class="chip ${ampm==='AM'?'selected':''}" style="${chipStyle}" data-tpap="AM">AM</button>
+        <button type="button" class="chip ${ampm==='PM'?'selected':''}" style="${chipStyle}" data-tpap="PM">PM</button>
+        ${hour12!==null ? `<button type="button" class="chip" style="${chipStyle}" data-tpclear="1">Clear</button>` : ''}
+      </div>`;
+    host.querySelectorAll('[data-tphour]').forEach(b=> b.onclick = ()=>{
+      hour12 = parseInt(b.dataset.tphour,10);
+      if(minute === null) minute = 0;
+      if(!ampmManual) ampm = (hour12 >= 7 && hour12 <= 11) ? 'AM' : 'PM';
+      render();
+    });
+    host.querySelectorAll('[data-tpmin]').forEach(b=> b.onclick = ()=>{ minute = parseInt(b.dataset.tpmin,10); if(hour12 === null){ /* wait for an hour */ } render(); });
+    host.querySelectorAll('[data-tpap]').forEach(b=> b.onclick = ()=>{ ampm = b.dataset.tpap; ampmManual = true; render(); });
+    const clr = host.querySelector('[data-tpclear]');
+    if(clr) clr.onclick = ()=>{ hour12 = null; minute = null; ampm = null; ampmManual = false; render(); };
+  }
+  render();
+  return { get: ()=>{
+    if(hour12 === null) return null;
+    let h = hour12 % 12;
+    if((ampm || 'AM') === 'PM') h += 12;
+    return String(h).padStart(2,'0') + ':' + String(minute===null?0:minute).padStart(2,'0');
+  } };
+}
+
 function askPropertyDetails(existing, onOk){
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;';
@@ -615,11 +729,13 @@ function askPropertyDetails(existing, onOk){
     <div id="npSuggestions" style="margin-top:6px;display:flex;flex-direction:column;gap:6px;"></div>
     <p class="hint" id="npAddrHint" style="display:none;">Suggestions need Wi-Fi \u2014 typing still works fine offline.</p>
 
-    <p class="fieldhead">Appointment date & time</p>
-    <input type="datetime-local" id="npAppt" value="${existing&&existing.appointment?existing.appointment:''}" style="width:100%;font-size:17px;font-family:inherit;border:2px solid var(--line);border-radius:12px;padding:12px;min-height:48px;">
+    <p class="fieldhead">Appointment date</p>
+    <div id="npApptDate"></div>
+    <p class="fieldhead">Appointment time</p>
+    <div id="npApptTime"></div>
 
     <p class="fieldhead">Effective date</p>
-    <input type="date" id="npEffective" value="${existing&&existing.effectiveDate?existing.effectiveDate:''}" style="width:100%;font-size:17px;font-family:inherit;border:2px solid var(--line);border-radius:12px;padding:12px;min-height:48px;">
+    <div id="npEffective"></div>
 
     <p class="fieldhead">Occupied or vacant?</p>
     <div class="chiprow">
@@ -636,6 +752,13 @@ function askPropertyDetails(existing, onOk){
     </div>
   </div>`;
   document.body.appendChild(overlay);
+
+  const apptParts = (existing && existing.appointment) ? existing.appointment.split('T') : [null, null];
+  const apptDatePicker = mkDatePicker(overlay.querySelector('#npApptDate'), apptParts[0] || null);
+  const apptTimePicker = mkTimePicker(overlay.querySelector('#npApptTime'), (apptParts[1] && apptParts[1] !== '00:00') ? apptParts[1] : null);
+  const effDatePicker = mkDatePicker(overlay.querySelector('#npEffective'), (existing && existing.effectiveDate) || null, {
+    extra: [{ label: 'Same as appointment', get: ()=>apptDatePicker.get() }]
+  });
 
   const addrInput = overlay.querySelector('#npAddress');
   const sugBox = overlay.querySelector('#npSuggestions');
@@ -680,8 +803,8 @@ function askPropertyDetails(existing, onOk){
   overlay.querySelector('#modalOk').onclick = ()=>{
     const data = {
       address: addrInput.value.trim(),
-      appointment: overlay.querySelector('#npAppt').value || null,
-      effectiveDate: overlay.querySelector('#npEffective').value || null,
+      appointment: apptDatePicker.get() ? (apptDatePicker.get() + 'T' + (apptTimePicker.get() || '00:00')) : null,
+      effectiveDate: effDatePicker.get() || null,
       occupancy: occupancy,
       fileNumber: overlay.querySelector('#npFileNum').value.trim()
     };
