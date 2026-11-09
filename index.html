@@ -66,6 +66,19 @@
   .safetyblock{background:var(--bg);border:2px solid var(--warn);border-radius:14px;padding:14px;margin-bottom:14px;}
   .roomcard{border:2px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px;background:var(--bg);}
   .roomcard .row{margin-bottom:6px;}
+  .roomcard-collapsed{display:flex;align-items:center;gap:12px;width:100%;min-height:58px;text-align:left;font-family:inherit;color:var(--text);cursor:pointer;touch-action:manipulation;}
+  .roomcard-collapsed .rc-check{font-size:22px;font-weight:800;color:var(--good);}
+  .roomcard-collapsed .rc-name{font-size:19px;font-weight:700;color:#0b5fb0;white-space:nowrap;}
+  .roomcard-collapsed .rc-sum{flex:1;font-size:15px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .roomcard-collapsed .rc-chev{font-size:16px;color:var(--sub);}
+  .photostrip .ps-head{display:flex;justify-content:space-between;align-items:center;font-size:15px;font-weight:700;margin-bottom:6px;}
+  .photostrip .ps-count{color:var(--sub);font-weight:600;}
+  .photostrip .ps-add{display:block;text-align:center;cursor:pointer;}
+  .photostrip .thumb{width:60px;height:60px;}
+  body.compact .roomcard{padding:8px;margin-bottom:8px;}
+  body.compact .roomcard .fieldhead{margin-top:6px;}
+  body.compact .roomcard .chiprow{margin-top:6px;gap:8px;}
+  body.compact .roomcard .row{margin-bottom:2px;}
   .mechcard{border:2px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px;background:var(--bg);}
   .footer-actions{background:var(--bg);border-top:2px solid var(--line);padding:16px;display:flex;gap:10px;}
   .footer-actions .btn{flex:1;}
@@ -125,6 +138,11 @@ const PHOTO_SIZE_PRESETS = {
 };
 let photoSizeSetting = localStorage.getItem('fieldTool.photoSize') || 'Medium';
 let tabBarScale = parseFloat(localStorage.getItem('fieldTool.tabBarScale')) || 1;
+let cardDensity = localStorage.getItem('fieldTool.density') || 'comfortable';
+// Room-card display state (kept only while the app is open, never saved)
+let roomCollapse = {};      // roomId -> true when shown as a slim bar
+let collapseInitFor = null; // level id whose collapse state has been set up
+let noteOpen = {};          // roomId -> true when the notes box was opened by hand
 let landscapeLockSetting = localStorage.getItem('fieldTool.landscapeLock') === 'true';
 
 async function applyLandscapeLockSetting(){
@@ -514,7 +532,6 @@ function toast(msg, ms){
 /* ---------- Tap a thumbnail to view it full-screen, with delete right there ---------- */
 function openPhotoViewer(imgEl){
   const src = imgEl.src, key = imgEl.dataset.key, idx = imgEl.dataset.idx;
-  const tileCard = imgEl.closest('.card');
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:200;padding:20px;gap:16px;';
   overlay.innerHTML = `
@@ -530,7 +547,7 @@ function openPhotoViewer(imgEl){
   overlay.querySelector('#viewerDelete').onclick = ()=>{
     askConfirm('Delete this photo?', 'This cannot be undone.', ()=>{
       overlay.remove();
-      const delBtn = tileCard.querySelector(`[data-delkey="${key}"][data-delidx="${idx}"]`);
+      const delBtn = document.querySelector(`[data-delkey="${key}"][data-delidx="${idx}"]`);
       if(delBtn){ delBtn.dataset.skipconfirm = '1'; delBtn.click(); }
     });
   };
@@ -953,6 +970,14 @@ function renderSettings(){
         <div class="chiprow">${tabChips}</div>
       </div>
       <div class="card">
+        <p class="label">Room card spacing</p>
+        <p class="sub">Compact trims the empty space around each room card so more fits on screen. Buttons stay the same size.</p>
+        <div class="chiprow">
+          <button class="chip ${cardDensity==='comfortable'?'selected':''}" data-density="comfortable">Comfortable</button>
+          <button class="chip ${cardDensity==='compact'?'selected':''}" data-density="compact">Compact</button>
+        </div>
+      </div>
+      <div class="card">
         <p class="label">Photo size</p>
         <p class="sub">Smaller means faster syncs and less storage used; Large keeps more detail. Only affects photos taken after you change this.</p>
         <div class="chiprow">${photoChips}</div>
@@ -981,6 +1006,14 @@ function renderSettings(){
   `;
   document.getElementById('backHomeFromSettings').onclick = ()=>renderHome();
   document.getElementById('checkUpdateBtn').onclick = ()=>checkForUpdatesNow();
+  app.querySelectorAll('[data-density]').forEach(btn=>{
+    btn.onclick = ()=>{
+      cardDensity = btn.dataset.density;
+      localStorage.setItem('fieldTool.density', cardDensity);
+      document.body.classList.toggle('compact', cardDensity==='compact');
+      renderSettings();
+    };
+  });
   app.querySelectorAll('[data-landscapelock]').forEach(btn=>{
     btn.onclick = async ()=>{
       landscapeLockSetting = (btn.dataset.landscapelock === 'on');
@@ -1051,6 +1084,9 @@ function tabList(p){
   ];
 }
 /* ---------- Tab-level completeness (mirrors each card's own rule exactly) ---------- */
+function isRoomComplete(r){
+  return !!(r.flooringType && r.ceilingHeight && r.ceilingStyle && r.condition && r.roomPhotos.length>0 && r.flooringPhotos.length>0);
+}
 function isMechItemComplete(item){
   const lbl = (item.label||'').trim().toLowerCase();
   let c = !!(item.label||'').trim();
@@ -1081,7 +1117,7 @@ function isLevelTabComplete(p, lvl){
   if(lvl.kind==='mechanical'){
     return lvl.rooms.length>0 && lvl.rooms.every(isMechItemComplete);
   }
-  const roomsOk = lvl.rooms.length>0 && lvl.rooms.every(r=> !!(r.flooringType && r.ceilingHeight && r.ceilingStyle && r.condition && r.roomPhotos.length>0 && r.flooringPhotos.length>0));
+  const roomsOk = lvl.rooms.length>0 && lvl.rooms.every(isRoomComplete);
   const safetyOk = lvl.safety.smoke.present!==null && lvl.safety.co.present!==null && lvl.safety.combo.present!==null;
   const broadbandOk = (lvl.label==='L1') ? (p.broadband.present!==null) : true;
   return roomsOk && safetyOk && broadbandOk;
@@ -1135,7 +1171,7 @@ function wirePropertyChrome(app, p){
   };
   document.getElementById('exportBtnHeader').onclick = renderExport;
   app.querySelectorAll('[data-gotab]').forEach(btn=>{
-    btn.onclick = ()=>{ currentTab = btn.dataset.gotab; renderCurrentTab(); };
+    btn.onclick = ()=>{ currentTab = btn.dataset.gotab; collapseInitFor = null; renderCurrentTab(); };
   });
   document.getElementById('addLevelTabBtn').onclick = ()=>{
     const overlay = showModal(`
@@ -1186,8 +1222,20 @@ function renderCurrentTab(){
 /* ---------- Render: Property home ---------- */
 function renderPropertyHome(){
   currentTab = 'exterior';
+  collapseInitFor = null;
   renderExterior();
 }
+/* ---------- Slim photo strip (used inside room cards to keep them short) ---------- */
+function photoStripHTML(key, label, photos){
+  const arr = photos || [];
+  const thumbs = arr.map((ph,i)=>`<div class="thumb"><img src="${ph.src}" data-key="${key}" data-idx="${i}" onclick="openPhotoViewer(this)"><button class="del" data-delkey="${key}" data-delidx="${i}">&times;</button></div>`).join('');
+  return `<div class="photostrip">
+    <div class="ps-head"><span>${label}</span><span class="ps-count">${arr.length}</span></div>
+    <label class="btn btn-accent btn-sm ps-add">+ Photo<input type="file" accept="image/*" capture="environment" multiple style="display:none;" data-camkey="${key}"></label>
+    ${arr.length ? `<div class="thumbs" style="margin-top:8px;">${thumbs}</div>` : ''}
+  </div>`;
+}
+
 /* ---------- Photo tile helper ---------- */
 function photoTileHTML(key, label, photos, standalone){
   const thumbs = (photos||[]).map((ph,i)=>`
@@ -1757,12 +1805,25 @@ function renderRooms(){
 
   const roomCardHTML = (r, idx)=>{
     const roomCategory = roomNameCategory(r.name);
-    const roomComplete = !!(r.flooringType && r.ceilingHeight && r.ceilingStyle && r.condition && r.roomPhotos.length>0 && r.flooringPhotos.length>0);
+    const roomComplete = isRoomComplete(r);
+
+    // Finished rooms can fold down to one slim bar
+    if(roomComplete && roomCollapse[r.id] === true){
+      const summary = [r.flooringType, r.ceilingHeight, r.ceilingStyle, r.condition].filter(Boolean).join(' · ');
+      return `
+      <button type="button" class="roomcard roomcard-collapsed cc-complete" data-expandroom="${r.id}" data-roomid="${r.id}">
+        <span class="rc-check">✓</span>
+        <span class="rc-name">${r.name || 'Unnamed room'}</span>
+        <span class="rc-sum">${summary}</span>
+        <span class="rc-chev">▼</span>
+      </button>`;
+    }
+
     const showOtherBox = (roomCategory === 'Other') || (r.name !== roomCategory);
     const nameOpts = ROOM_NAME_OPTIONS.map(n=>`<option value="${n}" ${n===roomCategory?'selected':''}>${n}</option>`).join('');
     const ceilChips = CEILING_HEIGHT_OPTIONS.map(v=>`<button class="chip ${r.ceilingHeight===v?'selected':''}" data-ceil="${r.id}" data-ceilval="${v}">${v}</button>`).join('');
     const styleChips = CEILING_STYLE_OPTIONS.map(v=>`<button class="chip ${r.ceilingStyle===v?'selected':''}" data-style="${r.id}" data-styleval="${v}">${v}</button>`).join('');
-    const condChips = CONDITION_OPTIONS.map(v=>`<button class="chip ${r.condition===v?'selected':''}" data-cond="${r.id}" data-condval="${v}">${v}</button>`).join('');
+    const condChips = CONDITION_OPTIONS.map(v=>`<button class="chip ${r.condition===v?'selected':''}" style="width:100%;" data-cond="${r.id}" data-condval="${v}">${v}</button>`).join('');
     const floorChips = FLOORING_OPTIONS.map(v=>`<button class="chip ${r.flooringType===v?'selected':''}" data-floor="${r.id}" data-floorval="${v}">${v}</button>`).join('');
     const updatedBlock = isKitchenOrBath(r.name) ? `
       <p class="fieldhead">Update status</p>
@@ -1776,6 +1837,10 @@ function renderRooms(){
         </div>
       ` : ''}
     ` : '';
+    const notesBlock = (r.notes || noteOpen[r.id]) ? `
+      <p class="fieldhead">Notes</p>
+      <textarea data-roomnotes="${r.id}" placeholder="Anything specific to this room...">${r.notes||''}</textarea>
+    ` : `<button type="button" class="btn btn-sm" data-addnote="${r.id}" style="margin-top:10px;">+ Note</button>`;
     return `
     <div class="roomcard ${roomComplete ? 'cc-complete' : 'cc-incomplete'}" data-roomid="${r.id}">
       <div class="row" style="align-items:flex-start;gap:12px;">
@@ -1789,21 +1854,23 @@ function renderRooms(){
           <button class="btn btn-sm" data-delroom="${r.id}" title="Remove room" style="width:100%;padding:14px 6px;">&times;</button>
         </div>
         <div style="flex:30;">
-          ${photoTileHTML('room_'+r.id, 'Photo of room', r.roomPhotos)}
+          ${photoStripHTML('room_'+r.id, 'Room photo', r.roomPhotos)}
         </div>
       </div>
 
-      <div class="row" style="align-items:flex-start;gap:12px;margin-top:14px;">
+      <div class="row" style="align-items:flex-start;gap:12px;margin-top:12px;">
         <div style="flex:7;">
           <p class="fieldhead" style="margin-top:0;">Flooring type</p>
           <div class="chiprow">${floorChips}</div>
+          <p class="fieldhead">Flooring condition</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">${condChips}</div>
         </div>
         <div style="flex:3;">
-          ${photoTileHTML('floor_'+r.id, 'Flooring photo', r.flooringPhotos)}
+          ${photoStripHTML('floor_'+r.id, 'Flooring photo', r.flooringPhotos)}
         </div>
       </div>
 
-      <div class="row" style="align-items:flex-start;gap:12px;margin-top:14px;">
+      <div class="row" style="align-items:flex-start;gap:12px;margin-top:12px;">
         <div style="flex:7;">
           <p class="fieldhead" style="margin-top:0;">Ceiling height</p>
           <p class="sub">Measured at highest point &mdash; nearest foot (UAD 3.6)</p>
@@ -1815,13 +1882,11 @@ function renderRooms(){
         </div>
       </div>
 
-      <p class="fieldhead">Condition</p>
-      <div class="chiprow">${condChips}</div>
-
       ${updatedBlock}
 
-      <p class="fieldhead">Notes</p>
-      <textarea data-roomnotes="${r.id}" placeholder="Anything specific to this room...">${r.notes||''}</textarea>
+      ${notesBlock}
+
+      ${roomComplete ? `<button type="button" class="btn btn-sm" data-collapseroom="${r.id}" style="margin-top:10px;width:100%;">▲ Collapse this room</button>` : ''}
     </div>`;
   };
 
@@ -1864,6 +1929,12 @@ function renderRooms(){
   };
 
   const activeLevel = p.levels.find(l=>l.id===currentTab);
+
+  if(activeLevel && activeLevel.kind==='rooms' && collapseInitFor !== activeLevel.id){
+    // First time this level is shown: finished rooms start folded, unfinished ones open
+    collapseInitFor = activeLevel.id;
+    activeLevel.rooms.forEach(r=>{ roomCollapse[r.id] = isRoomComplete(r); });
+  }
 
   const levelHTML = !activeLevel ? `
     <div class="card">
@@ -1953,6 +2024,19 @@ function renderRooms(){
       findLevel(p,btn.dataset.addroom).rooms.push(newRoom);
       saveCurrent(); renderRooms();
       scrollToEl(`[data-roomid="${newRoom.id}"]`);
+    };
+  });
+  app.querySelectorAll('[data-expandroom]').forEach(btn=>{
+    btn.onclick = ()=>{ roomCollapse[btn.dataset.expandroom] = false; renderRooms(); scrollToEl(`[data-roomid="${btn.dataset.expandroom}"]`); };
+  });
+  app.querySelectorAll('[data-collapseroom]').forEach(btn=>{
+    btn.onclick = ()=>{ roomCollapse[btn.dataset.collapseroom] = true; renderRooms(); };
+  });
+  app.querySelectorAll('[data-addnote]').forEach(btn=>{
+    btn.onclick = ()=>{
+      noteOpen[btn.dataset.addnote] = true; renderRooms();
+      const ta = document.querySelector(`[data-roomnotes="${btn.dataset.addnote}"]`);
+      if(ta) ta.focus();
     };
   });
   app.querySelectorAll('[data-delroom]').forEach(btn=>{
@@ -2192,7 +2276,7 @@ function buildNotesText(p){
         put('Flooring', r.flooringType);
         put('Ceiling height', r.ceilingHeight);
         put('Ceiling style', r.ceilingStyle);
-        put('Condition', r.condition);
+        put('Flooring condition', r.condition);
         if(r.updated && r.updated.status){
           const bits = [r.updated.status];
           if(r.updated.status !== 'Not updated'){ bits.push(r.updated.what); bits.push(r.updated.when); }
@@ -2476,6 +2560,7 @@ async function checkForUpdatesNow(){
 (async function boot(){
   document.getElementById('app').style.zoom = uiScale;
   document.documentElement.style.setProperty('--tab-scale', tabBarScale);
+  document.body.classList.toggle('compact', cardDensity==='compact');
   if(landscapeLockSetting) applyLandscapeLockSetting();
   if('serviceWorker' in navigator){
     navigator.serviceWorker.register('sw.js').then(watchForUpdates).catch(()=>{});
