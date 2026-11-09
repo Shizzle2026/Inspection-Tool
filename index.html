@@ -72,6 +72,16 @@
   .roomcard-collapsed .rc-sum{flex:1;font-size:15px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .roomcard-collapsed .rc-chev{font-size:16px;color:var(--sub);}
   .sketchthumbs .thumb{width:150px;height:150px;}
+  .phototile{margin-bottom:0;padding:10px 12px;}
+  .phototile .tile-row{display:flex;align-items:center;gap:12px;}
+  .phototile .tile-label{flex:0 0 auto;max-width:46%;}
+  .phototile .tile-label .label{font-size:17px;line-height:1.2;}
+  .phototile .tile-label .sub{font-size:14px;margin:2px 0 0;}
+  .phototile .tile-thumbs{display:flex;align-items:center;gap:6px;flex:1;min-width:0;overflow-x:auto;}
+  .phototile .tile-thumbs .thumb{flex:0 0 auto;width:56px;height:56px;}
+  .phototile .tile-add{flex:0 0 auto;margin-left:auto;cursor:pointer;}
+  .card > .phototile{margin-top:10px;}
+  .content > .phototile{margin-bottom:14px;}
   .photostrip{display:flex;align-items:center;gap:8px;}
   .photostrip .ps-add{flex:0 0 auto;white-space:nowrap;cursor:pointer;}
   .photostrip .ps-thumbs{display:flex;gap:6px;flex:1;min-width:0;overflow-x:auto;}
@@ -1157,9 +1167,8 @@ function isLevelTabComplete(p, lvl){
   }
   const roomsOk = lvl.rooms.length>0 && lvl.rooms.every(isRoomComplete);
   const safetyOk = isSafetyComplete(lvl);
-  const broadbandOk = (lvl.label==='L1') ? (p.broadband.present!==null) : true;
   const bsmtOk = !isBasementLevel(lvl) || isBasementComplete(lvl.basement);
-  return roomsOk && safetyOk && broadbandOk && bsmtOk;
+  return roomsOk && safetyOk && bsmtOk;
 }
 
 function propertyChromeHTML(p){
@@ -1303,36 +1312,28 @@ function photoGroupCardHTML(title, slots){
     <div class="card ${done ? 'cc-complete' : 'cc-incomplete'}">
       <p class="label" style="font-size:18px;margin-bottom:8px;">${title}</p>
       <div class="row" style="align-items:flex-start;gap:12px;flex-wrap:wrap;">
-        ${slots.map(sl=>`<div style="flex:1 1 260px;">${photoStripHTML(sl[0], sl[1], sl[2])}</div>`).join('')}
+        ${slots.map(sl=>`<div style="flex:1 1 330px;">${photoTileHTML(sl[0], sl[1], sl[2])}</div>`).join('')}
       </div>
     </div>`;
 }
 
 /* ---------- Slim photo strip (used inside room cards to keep them short) ---------- */
-function photoStripHTML(key, label, photos){
-  const arr = photos || [];
-  const thumbs = arr.map((ph,i)=>`<div class="thumb"><img src="${ph.src}" data-key="${key}" data-idx="${i}" onclick="openPhotoViewer(this)"><button class="del" data-delkey="${key}" data-delidx="${i}">&times;</button></div>`).join('');
-  return `<div class="photostrip">
-    <label class="btn btn-accent btn-sm ps-add">+ ${label}${arr.length ? ' \u00b7 ' + arr.length : ''}<input type="file" accept="image/*" capture="environment" multiple style="display:none;" data-camkey="${key}"></label>
-    ${arr.length ? `<div class="ps-thumbs">${thumbs}</div>` : ''}
-  </div>`;
-}
+function photoStripHTML(key, label, photos){ return photoTileHTML(key, label, photos, false); }
 
 /* ---------- Photo tile helper ---------- */
 function photoTileHTML(key, label, photos, standalone){
-  const thumbs = (photos||[]).map((ph,i)=>`
-    <div class="thumb"><img src="${ph.src}" data-key="${key}" data-idx="${i}" onclick="openPhotoViewer(this)"><button class="del" data-delkey="${key}" data-delidx="${i}">&times;</button></div>
-  `).join('');
-  const cc = standalone ? ((photos||[]).length>0 ? 'cc-complete' : 'cc-incomplete') : '';
+  const arr = photos || [];
+  const thumbs = arr.map((ph,i)=>`<div class="thumb"><img src="${ph.src}" data-key="${key}" data-idx="${i}" onclick="openPhotoViewer(this)"><button class="del" data-delkey="${key}" data-delidx="${i}">&times;</button></div>`).join('');
+  const cc = standalone ? (arr.length>0 ? 'cc-complete' : 'cc-incomplete') : '';
   return `
-    <div class="card ${cc}">
-      <div class="row">
-        <div><p class="label">${label}</p><p class="sub">${(photos||[]).length} photo${(photos||[]).length===1?'':'s'}</p></div>
-        <label class="btn btn-accent btn-sm" style="cursor:pointer;">Add
+    <div class="card phototile ${cc}">
+      <div class="tile-row">
+        <div class="tile-label"><p class="label">${label}</p><p class="sub">${arr.length} photo${arr.length===1?'':'s'}</p></div>
+        <div class="tile-thumbs">${thumbs}</div>
+        <label class="btn btn-accent btn-sm tile-add">Add
           <input type="file" accept="image/*" capture="environment" multiple style="display:none;" data-camkey="${key}">
         </label>
       </div>
-      <div class="thumbs">${thumbs}</div>
     </div>
   `;
 }
@@ -1892,24 +1893,9 @@ function basementCardHTML(lvl){
           <p class="fieldhead" style="margin-top:0;">Below grade access</p>
           <div class="chiprow">${accessChips}</div>
         </div>
-        ${accessNeedsPhoto(b.access) ? `<div style="flex:1 1 230px;padding-top:6px;">${photoStripHTML('bsmt_'+lvl.id, 'Exterior access photo', b.accessPhotos)}</div>` : ''}
+        ${accessNeedsPhoto(b.access) ? `<div style="flex:1 1 340px;padding-top:6px;">${photoStripHTML('bsmt_'+lvl.id, 'Exterior access photo', b.accessPhotos)}</div>` : ''}
       </div>
     </div>`;
-}
-
-function broadbandCardHTML(p){
-  const complete = p.broadband.present !== null;
-  return `
-    <div class="safetyblock ${complete ? 'cc-complete' : 'cc-incomplete'}">
-      <div class="row">
-        <p class="label" style="font-size:18px;">Broadband Internet Available</p>
-        <div class="chiprow" style="margin-top:0;">
-          <button class="chip ${p.broadband.present===true?'selected':''}" data-broadband="yes">Yes</button>
-          <button class="chip ${p.broadband.present===false?'selected':''}" data-broadband="no">No</button>
-        </div>
-      </div>
-    </div>
-  `;
 }
 
 function renderRooms(){
@@ -1973,26 +1959,28 @@ function renderRooms(){
     ` : '';
     return `
     <div class="roomcard ${roomComplete ? 'cc-complete' : 'cc-incomplete'}" data-roomid="${r.id}">
-      <div class="row" style="align-items:flex-start;gap:12px;flex-wrap:wrap;">
-        <div style="flex:1 1 230px;">
+      <div class="row" style="align-items:center;gap:12px;flex-wrap:wrap;">
+        <div style="flex:1 1 200px;">
           <select data-roomselect="${r.id}" class="room-name-select" style="width:100%;font-weight:700;font-size:19px;">${nameOpts}</select>
         </div>
-        ${showOtherBox ? `<div style="flex:1 1 230px;">
+        ${showOtherBox ? `<div style="flex:1 1 200px;">
           <input type="text" data-roomcustom="${r.id}" value="${r.name==='Other'?'':r.name}" placeholder="Type room name" style="width:100%;font-weight:700;font-size:19px;color:#0b5fb0;">
         </div>` : ''}
-        <div style="flex:1 1 230px;">
-          ${photoStripHTML('room_'+r.id, 'Room photo', r.roomPhotos)}
-        </div>
-        <div style="flex:1 1 230px;">
-          ${photoStripHTML('floor_'+r.id, 'Flooring photo', r.flooringPhotos)}
+        <div style="flex:2 1 340px;">
+          ${photoTileHTML('room_'+r.id, 'Room photo', r.roomPhotos)}
         </div>
       </div>
 
-      <div style="margin-top:12px;">
-        <p class="fieldhead" style="margin-top:0;">Flooring type</p>
-        <div class="chiprow">${floorChips}</div>
-        <p class="fieldhead">Flooring condition</p>
-        <div class="cond-grid">${condChips}</div>
+      <div class="row" style="align-items:flex-start;gap:12px;flex-wrap:wrap;margin-top:12px;">
+        <div style="flex:7 1 560px;">
+          <p class="fieldhead" style="margin-top:0;">Flooring type</p>
+          <div class="chiprow">${floorChips}</div>
+          <p class="fieldhead">Flooring condition</p>
+          <div class="cond-grid">${condChips}</div>
+        </div>
+        <div style="flex:3 1 330px;">
+          ${photoTileHTML('floor_'+r.id, 'Flooring photo', r.flooringPhotos)}
+        </div>
       </div>
 
       <div style="display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin-top:12px;">
@@ -2098,7 +2086,6 @@ function renderRooms(){
       </div>
       ${collCard('safety_'+activeLevel.id, 'Smoke & CO detectors', safetySummaryText(activeLevel), safetyHTML)}
       ${isBasementLevel(activeLevel) ? collCard('bsmt_'+activeLevel.id, 'Below grade', joinS([activeLevel.basement.grade, activeLevel.basement.access, photosN(activeLevel.basement.accessPhotos.length)]), basementCardHTML(activeLevel)) : ''}
-      ${activeLevel.label === 'L1' ? broadbandCardHTML(p) : ''}
       ${activeLevel.rooms.map((r,idx)=>roomCardHTML(r,idx)).join('')}
       <button class="btn btn-accent" data-addroom="${activeLevel.id}" style="width:100%;">+ Add room to ${activeLevel.label}</button>
     </div>`);
@@ -2140,13 +2127,6 @@ function renderRooms(){
     bindSingleSelectTap(btn, ()=>lvl.basement.access, btn.dataset.val, (v)=>{ lvl.basement.access=v; saveCurrent(); renderRooms(); });
   });
   p.levels.filter(l=>isBasementLevel(l) && l.basement).forEach(lvl=> wirePhotoTile(app, 'bsmt_'+lvl.id, ()=>lvl.basement.accessPhotos, renderRooms));
-  const broadbandBtns = app.querySelectorAll('[data-broadband]');
-  if(broadbandBtns.length){
-    broadbandBtns.forEach(btn=>{
-      const v = (btn.dataset.broadband==='yes');
-      bindSingleSelectTap(btn, ()=>p.broadband.present, v, (val)=>{ p.broadband.present=val; saveCurrent(); renderRooms(); });
-    });
-  }
   p.levels.filter(l=>l.kind==='rooms').forEach(lvl=>{
     wirePhotoTile(app, 'det_'+lvl.id+'_smoke', ()=>lvl.safety.smoke.photos, renderRooms);
     wirePhotoTile(app, 'det_'+lvl.id+'_co', ()=>lvl.safety.co.photos, renderRooms);
@@ -2410,7 +2390,6 @@ function buildNotesText(p){
     put('Alley', 'None');
   }
   put('Sprinkler system present', f(p.exterior.sprinkler.present));
-  put('Broadband Internet Available', f(p.broadband.present));
   const si = p.exterior.siteInfluence;
   if(si.present){
     put('Site influence', [si.type, si.proximity, si.impact].filter(Boolean).join(' \u2014 ') || '(details not set)');
