@@ -199,6 +199,14 @@ const CONDITION_SHORT = {'Damaged and functional':'Damaged - func.', 'Damaged an
 function condLabel(v){ return CONDITION_SHORT[v] || v; }
 const FLOORING_OPTIONS = ['Carpet','Wood','Vinyl','LVP','Tile','Laminate','Concrete','Other'];
 const UPDATE_STATUS_OPTIONS = ['Not updated','Partially updated','Fully updated'];
+const BASEMENT_GRADE_OPTIONS = ['Partially below grade','Fully below grade'];
+const BASEMENT_ACCESS_OPTIONS = ['Interior and exterior access','Interior access only','Exterior access only'];
+function accessNeedsPhoto(a){ return a==='Interior and exterior access' || a==='Exterior access only'; }
+function isBasementLevel(lvl){ return lvl.kind==='rooms' && (/^B\d*$/i.test((lvl.label||'').trim()) || /basement/i.test(lvl.label||'')); }
+function mkBasement(){ return {grade:null, access:null, accessPhotos:[]}; }
+function isBasementComplete(b){ return !!(b && b.grade && b.access && (!accessNeedsPhoto(b.access) || b.accessPhotos.length>0)); }
+// What goes on the data sheet / photo names for the two vinyl-type chips
+function flooringExportLabel(v){ return ({'Vinyl':'Vinyl - Sheet','LVP':'Vinyl - LVP'})[v] || v; }
 const ROOF_AGE_OPTIONS = ['Less than 1 year','1 to 10 years','10 to 20 years','20 or more years'];
 const UPDATED_TIMEFRAMES = ['Less than 1 year','1 to 5 years','5 to 10 years','10 or more years'];
 const FENCE_MATERIALS = ['Wood','Metal','Vinyl','Chain link'];
@@ -284,6 +292,7 @@ function mkLevel(label){
     if(label==='L1'){
       lvl.rooms = [mkRoom('Living room'), mkRoom('Dining room'), mkRoom('Kitchen')];
     }
+    if(isBasementLevel(lvl)) lvl.basement = mkBasement();
   }
   return lvl;
 }
@@ -506,6 +515,10 @@ function migratePropertyPhotos(p){
     if(lvl.kind==='mechanical'){
       (lvl.rooms||[]).forEach(item=>fix(item.photos));
     } else {
+      if(isBasementLevel(lvl)){
+        if(!lvl.basement){ lvl.basement = mkBasement(); changed = true; }
+        fix(lvl.basement.accessPhotos);
+      }
       if(lvl.safety){
         if(!lvl.safety.combo){ lvl.safety.combo = {present:null, photos:[]}; changed = true; }
         fix(lvl.safety.smoke && lvl.safety.smoke.photos);
@@ -1128,7 +1141,8 @@ function isLevelTabComplete(p, lvl){
   const roomsOk = lvl.rooms.length>0 && lvl.rooms.every(isRoomComplete);
   const safetyOk = lvl.safety.smoke.present!==null && lvl.safety.co.present!==null && lvl.safety.combo.present!==null;
   const broadbandOk = (lvl.label==='L1') ? (p.broadband.present!==null) : true;
-  return roomsOk && safetyOk && broadbandOk;
+  const bsmtOk = !isBasementLevel(lvl) || isBasementComplete(lvl.basement);
+  return roomsOk && safetyOk && broadbandOk && bsmtOk;
 }
 
 function propertyChromeHTML(p){
@@ -1775,6 +1789,26 @@ function renderExterior(){
 }
 
 /* ---------- Render: Interior (levels: rooms + mechanical) ---------- */
+function basementCardHTML(lvl){
+  const b = lvl.basement;
+  const done = isBasementComplete(b);
+  const gradeChips = BASEMENT_GRADE_OPTIONS.map(v=>`<button class="chip ${b.grade===v?'selected':''}" data-bsgrade="${lvl.id}" data-val="${v}">${v}</button>`).join('');
+  const accessChips = BASEMENT_ACCESS_OPTIONS.map(v=>`<button class="chip ${b.access===v?'selected':''}" data-bsaccess="${lvl.id}" data-val="${v}">${v}</button>`).join('');
+  return `
+    <div class="safetyblock ${done ? 'cc-complete' : 'cc-incomplete'}">
+      <p class="label" style="font-size:18px;">Below grade &mdash; ${lvl.label}</p>
+      <p class="fieldhead">Grade level</p>
+      <div class="chiprow">${gradeChips}</div>
+      <div class="row" style="align-items:flex-start;gap:12px;flex-wrap:wrap;margin-top:8px;">
+        <div style="flex:2 1 420px;">
+          <p class="fieldhead" style="margin-top:0;">Below grade access</p>
+          <div class="chiprow">${accessChips}</div>
+        </div>
+        ${accessNeedsPhoto(b.access) ? `<div style="flex:1 1 230px;padding-top:6px;">${photoStripHTML('bsmt_'+lvl.id, 'Exterior access photo', b.accessPhotos)}</div>` : ''}
+      </div>
+    </div>`;
+}
+
 function broadbandCardHTML(p){
   const complete = p.broadband.present !== null;
   return `
@@ -1851,36 +1885,34 @@ function renderRooms(){
     ` : '';
     return `
     <div class="roomcard ${roomComplete ? 'cc-complete' : 'cc-incomplete'}" data-roomid="${r.id}">
-      <div class="row" style="align-items:flex-start;gap:12px;">
-        <div style="flex:30;">
+      <div class="row" style="align-items:flex-start;gap:12px;flex-wrap:wrap;">
+        <div style="flex:1 1 230px;">
           <select data-roomselect="${r.id}" class="room-name-select" style="width:100%;font-weight:700;font-size:19px;">${nameOpts}</select>
         </div>
-        <div style="flex:40;">
-          ${showOtherBox ? `<input type="text" data-roomcustom="${r.id}" value="${r.name==='Other'?'':r.name}" placeholder="Type room name" style="width:100%;font-weight:700;font-size:19px;color:#0b5fb0;">` : ''}
-        </div>
-        <div style="flex:30;">
+        ${showOtherBox ? `<div style="flex:1 1 230px;">
+          <input type="text" data-roomcustom="${r.id}" value="${r.name==='Other'?'':r.name}" placeholder="Type room name" style="width:100%;font-weight:700;font-size:19px;color:#0b5fb0;">
+        </div>` : ''}
+        <div style="flex:1 1 230px;">
           ${photoStripHTML('room_'+r.id, 'Room photo', r.roomPhotos)}
         </div>
-      </div>
-
-      <div class="row" style="align-items:flex-start;gap:12px;margin-top:12px;">
-        <div style="flex:7;">
-          <p class="fieldhead" style="margin-top:0;">Flooring type</p>
-          <div class="chiprow">${floorChips}</div>
-          <p class="fieldhead">Flooring condition</p>
-          <div class="cond-grid">${condChips}</div>
-        </div>
-        <div style="flex:3;">
+        <div style="flex:1 1 230px;">
           ${photoStripHTML('floor_'+r.id, 'Flooring photo', r.flooringPhotos)}
         </div>
       </div>
 
-      <div class="row" style="align-items:flex-start;gap:12px;margin-top:12px;">
-        <div style="flex:7;">
+      <div style="margin-top:12px;">
+        <p class="fieldhead" style="margin-top:0;">Flooring type</p>
+        <div class="chiprow">${floorChips}</div>
+        <p class="fieldhead">Flooring condition</p>
+        <div class="cond-grid">${condChips}</div>
+      </div>
+
+      <div style="display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start;margin-top:12px;">
+        <div>
           <p class="fieldhead" style="margin-top:0;">Ceiling height <span style="font-weight:500;font-size:14px;color:var(--sub);">&mdash; highest point, nearest foot (UAD 3.6)</span></p>
           <div class="chiprow">${ceilChips}</div>
         </div>
-        <div style="flex:3;">
+        <div>
           <p class="fieldhead" style="margin-top:0;">Ceiling style</p>
           <div class="chiprow">${styleChips}</div>
         </div>
@@ -1939,6 +1971,7 @@ function renderRooms(){
 
   const activeLevel = p.levels.find(l=>l.id===currentTab);
 
+  if(activeLevel && isBasementLevel(activeLevel) && !activeLevel.basement) activeLevel.basement = mkBasement();
   if(activeLevel && activeLevel.kind==='rooms' && collapseInitFor !== activeLevel.id){
     // First time this level is shown: finished rooms start folded, unfinished ones open
     collapseInitFor = activeLevel.id;
@@ -1971,6 +2004,7 @@ function renderRooms(){
         ${safetyDetectorRow(activeLevel,'combo','Combo unit present')}
         <p class="hint">Combo Yes auto-confirms Smoke and CO too. Double-tap Combo fast to clear it \u2014 that also resets Smoke and CO, so nothing stays marked done without you actually confirming it.</p>
       </div>
+      ${isBasementLevel(activeLevel) ? basementCardHTML(activeLevel) : ''}
       ${activeLevel.label === 'L1' ? broadbandCardHTML(p) : ''}
       ${activeLevel.rooms.map((r,idx)=>roomCardHTML(r,idx)).join('')}
       <button class="btn btn-accent" data-addroom="${activeLevel.id}" style="width:100%;">+ Add room to ${activeLevel.label}</button>
@@ -2002,6 +2036,15 @@ function renderRooms(){
       saveCurrent(); renderRooms();
     });
   });
+  app.querySelectorAll('[data-bsgrade]').forEach(btn=>{
+    const lvl = findLevel(p, btn.dataset.bsgrade);
+    bindSingleSelectTap(btn, ()=>lvl.basement.grade, btn.dataset.val, (v)=>{ lvl.basement.grade=v; saveCurrent(); renderRooms(); });
+  });
+  app.querySelectorAll('[data-bsaccess]').forEach(btn=>{
+    const lvl = findLevel(p, btn.dataset.bsaccess);
+    bindSingleSelectTap(btn, ()=>lvl.basement.access, btn.dataset.val, (v)=>{ lvl.basement.access=v; saveCurrent(); renderRooms(); });
+  });
+  p.levels.filter(l=>isBasementLevel(l) && l.basement).forEach(lvl=> wirePhotoTile(app, 'bsmt_'+lvl.id, ()=>lvl.basement.accessPhotos, renderRooms));
   const broadbandBtns = app.querySelectorAll('[data-broadband]');
   if(broadbandBtns.length){
     broadbandBtns.forEach(btn=>{
@@ -2278,11 +2321,12 @@ function buildNotesText(p){
       put('Smoke detector present', f(lvl.safety.smoke.present));
       put('CO detector present', f(lvl.safety.co.present));
       put('Combo unit present', f(lvl.safety.combo.present));
+      if(isBasementLevel(lvl) && lvl.basement){ put('Below grade', lvl.basement.grade); put('Below grade access', lvl.basement.access); }
       lvl.rooms.forEach(r=>{
         lines.push('');
         lines.push('### ' + (r.name||'Unnamed room'));
         lines.push('');
-        put('Flooring', r.flooringType);
+        put('Flooring', flooringExportLabel(r.flooringType));
         put('Ceiling height', r.ceilingHeight);
         put('Ceiling style', r.ceilingStyle);
         put('Flooring condition', r.condition);
@@ -2336,10 +2380,11 @@ function collectPhotoFiles(p){
       addAll(lvl.safety.smoke.photos, lvl.label + ' - Smoke detector');
       addAll(lvl.safety.co.photos, lvl.label + ' - CO detector');
       addAll(lvl.safety.combo.photos, lvl.label + ' - Combo smoke-CO unit');
+      if(isBasementLevel(lvl) && lvl.basement) addAll(lvl.basement.accessPhotos, lvl.label + ' - Exterior access');
       lvl.rooms.forEach(r=>{
         const rn = lvl.label + ' ' + (r.name || 'Room');
         addAll(r.roomPhotos, rn);
-        addAll(r.flooringPhotos, rn + ' - Flooring (' + (r.flooringType||'unspecified') + ')');
+        addAll(r.flooringPhotos, rn + ' - Flooring (' + (flooringExportLabel(r.flooringType)||'unspecified') + ')');
       });
     }
   });
